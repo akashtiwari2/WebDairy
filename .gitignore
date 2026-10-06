@@ -1,0 +1,13 @@
+.env
+.env.*
+!.env.example
+.cache/
+.runtime/
+backend/bin/
+frontend/node_modules/
+frontend/dist/
+frontend/.angular/
+*.log
+*.exe
+*.backup
+*.diary
