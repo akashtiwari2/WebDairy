@@ -11,13 +11,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/akashtiwari2/WebDairy/backend/internal/database"
+	"github.com/akashtiwari2/WebDairy/backend/internal/entries"
 	"github.com/akashtiwari2/WebDairy/backend/internal/server"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func run() error {
-	migrate := flag.Bool("migrate", false, "apply the scaffold database migration and exit")
-	migrationPath := flag.String("migration", "../migrations/001_initial.sql", "migration file path")
+	migrate := flag.Bool("migrate", false, "apply pending numbered database migrations and exit")
+	migrationPath := flag.String("migrations", "../migrations", "migration directory")
 	flag.Parse()
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
@@ -31,33 +33,21 @@ func run() error {
 	}
 	defer pool.Close()
 	if *migrate {
-		sql, err := os.ReadFile(*migrationPath)
-		if err != nil {
-			return errors.New("cannot read migration file")
-		}
 		migrationCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
 		defer cancel()
-		tx, err := pool.Begin(migrationCtx)
-		if err != nil {
-			return errors.New("cannot connect to database for migration")
+		if err := database.Migrate(migrationCtx, pool, *migrationPath); err != nil {
+			return err
 		}
-		defer tx.Rollback(context.Background())
-		if _, err = tx.Exec(migrationCtx, string(sql)); err != nil {
-			return errors.New("database migration failed")
-		}
-		if err = tx.Commit(migrationCtx); err != nil {
-			return errors.New("database migration commit failed")
-		}
-		fmt.Println("Database migration ready (version 1).")
+		fmt.Println("Database migrations ready (versions 1 through 4).")
 		return nil
 	}
 	e := server.New(func(ctx context.Context) error {
 		var version int
-		err := pool.QueryRow(ctx, "SELECT version FROM schema_migrations WHERE version = 1").Scan(&version)
+		err := pool.QueryRow(ctx, "SELECT version FROM schema_migrations WHERE version = 4").Scan(&version)
 		return err
-	})
+	}, &entries.Store{Pool: pool})
 	addr := "127.0.0.1:8080"
-	fmt.Println("WebDairy scaffold backend listening on", addr)
+	fmt.Println("WebDairy Phase 1 backend listening on", addr)
 	failure := make(chan error, 1)
 	go func() { failure <- e.Start(addr) }()
 	select {

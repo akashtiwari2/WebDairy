@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 source "$(dirname "$0")/env.sh"
+node --input-type=module <<'JS'
+import net from 'node:net';
+for (const port of [8080, 4200]) {
+  await new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.once('error', () => reject(new Error(`Local port ${port} is occupied. Check the existing service before stopping anything.`)));
+    server.listen(port, '127.0.0.1', () => server.close(resolve));
+  });
+}
+JS
 "$WEBDIARY_ROOT/scripts/db.sh"
 mkdir -p "$WEBDIARY_ROOT/.runtime"
 cd "$WEBDIARY_ROOT/backend"

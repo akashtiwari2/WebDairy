@@ -1,29 +1,150 @@
 <header>
- <a class="brand" href="/" aria-label="WebDairy home"><span class="mark">W</span> WebDairy <span class="tag">DEVELOPMENT</span></a>
- <span class="health" role="status">{{ backend() }}</span>
+  <a class="brand" href="/" aria-label="WebDairy home"
+    ><span class="mark">W</span> WebDairy <span class="tag">DEVELOPMENT</span></a
+  >
+  <span class="health" role="status">{{ backend() }}</span>
 </header>
 <main>
- <div class="intro"><div><p class="eyebrow">A LITTLE SPACE FOR YOUR THOUGHTS</p><h1>Your days, in your words.</h1><p>Look back. Be here. Write ahead.</p></div><button (click)="goToday()">Go to today</button></div>
- <div class="notice" role="note">Learning scaffold · Use sample text only. Drafts stay in this tab’s memory and disappear on refresh. Encrypted saving, login and backups are still to be built.</div>
- <div class="workspace">
-  <aside aria-label="Calendar">
-   <div class="month"><button (click)="moveMonth(-1)" aria-label="Previous month">‹</button><h2>{{ monthLabel() }}</h2><button (click)="moveMonth(1)" aria-label="Next month">›</button></div>
-   <div class="calendar">
-    @for (day of ['S','M','T','W','T','F','S']; track $index) { <span class="weekday">{{ day }}</span> }
-    @for (date of days(); track $index) {
-     @if (date) { <button [class.selected]="date === selected()" [class.today]="date === today()" [attr.aria-label]="date" [attr.aria-pressed]="date === selected()" (click)="select(date)">{{ +date.slice(8) }}<span class="dot" [class.visible]="!!drafts()[date]"></span></button> }
-     @else { <span></span> }
-    }
-   </div>
-   <label class="date-picker">Jump to any date<input type="date" [ngModel]="selected()" (ngModelChange)="select($event)"></label>
-   <p class="hint">Past, present and future dates are all open for writing.</p>
-  </aside>
-  <section class="editor" aria-label="Diary editor">
-   <div class="editor-top"><p class="eyebrow">{{ dateLabel() }}</p><span class="draft-status" role="status">{{ title || body ? 'In-memory draft · not saved' : 'Blank page' }}</span></div>
-   <label class="sr-only" for="title">Entry title</label><input id="title" class="title" placeholder="Give this day a title…" maxlength="200" [(ngModel)]="title" (ngModelChange)="keepDraft()">
-   <label class="sr-only" for="body">Entry text</label><textarea id="body" placeholder="What’s on your mind?" [(ngModel)]="body" (ngModelChange)="keepDraft()"></textarea>
-   <div class="editor-bottom"><span>Plain text. A little room to breathe.</span><span>{{ body.length }} characters</span></div>
-  </section>
- </div>
- <footer>WebDairy / Foundation milestone <span>Timezone: Asia/Kolkata</span></footer>
+  <div class="intro">
+    <div>
+      <p class="eyebrow">A LITTLE SPACE FOR YOUR THOUGHTS</p>
+      <h1>Your days, in your words.</h1>
+      <p>Look back. Be here. Write ahead.</p>
+    </div>
+    <button (click)="goToday()">Go to today</button>
+  </div>
+  <div class="notice" role="note">
+    Phase 1 · Sample text only. Entries save to PostgreSQL without encryption. Login, encrypted
+    draft recovery and backups are still to be built. Unsaved changes stay only in this tab; wait
+    for Saved before refreshing.
+  </div>
+  <div class="workspace">
+    <aside aria-label="Calendar">
+      <div class="month">
+        <button (click)="moveMonth(-1)" aria-label="Previous month">‹</button>
+        <h2>{{ monthLabel() }}</h2>
+        <button (click)="moveMonth(1)" aria-label="Next month">›</button>
+      </div>
+      <div class="calendar">
+        @for (day of ['S', 'M', 'T', 'W', 'T', 'F', 'S']; track $index) {
+          <span class="weekday">{{ day }}</span>
+        }
+        @for (date of days(); track $index) {
+          @if (date) {
+            <button
+              [class.selected]="date === selected()"
+              [class.today]="date === today()"
+              [attr.aria-label]="date"
+              [attr.aria-pressed]="date === selected()"
+              (click)="select(date)"
+            >
+              {{ +date.slice(8)
+              }}<span class="dot" [class.visible]="diary.dates().has(date)"></span>
+            </button>
+          } @else {
+            <span></span>
+          }
+        }
+      </div>
+      <label class="date-picker"
+        >Jump to any date<input type="date" [ngModel]="selected()" (ngModelChange)="select($event)"
+      /></label>
+      @if (diary.indexError()) {
+        <p class="hint" role="alert">
+          {{ diary.indexError() }} <button (click)="diary.loadDates()">Retry markers</button>
+        </p>
+      }
+      <p class="hint">Past, present and future dates are all open for writing.</p>
+    </aside>
+    <section class="editor" aria-label="Diary editor">
+      <div class="editor-top">
+        <p class="eyebrow">{{ dateLabel() }}</p>
+        <span class="draft-status" role="status">{{ statusLabel() }}</span>
+      </div>
+      @if (entry().error) {
+        <div class="save-message" role="alert">
+          {{ entry().error }}
+          @if (entry().status === 'failed') {
+            <button (click)="retry()">
+              {{
+                !entry().loaded
+                  ? 'Retry loading'
+                  : entry().deleteRequested
+                    ? 'Retry deletion'
+                    : 'Retry save'
+              }}
+            </button>
+          }
+        </div>
+      }
+      @if (entry().status === 'conflict') {
+        <div class="conflict-panel">
+          <h3>
+            Saved version ·
+            {{
+              entry().conflict
+                ? 'revision ' + entry().conflict!.revision
+                : 'entry deleted elsewhere'
+            }}
+          </h3>
+          @if (entry().conflict) {
+            <strong>{{ entry().conflict!.title }}</strong>
+            <pre>{{ entry().conflict!.body }}</pre>
+          }
+          <p>Your draft remains in the editor below.</p>
+          <button (click)="useSavedVersion()">Use saved version</button
+          ><button (click)="overwriteWithDraft()">Save my draft over this version</button>
+        </div>
+      }
+      <label class="sr-only" for="title">Entry title</label
+      ><input
+        id="title"
+        class="title"
+        placeholder="Give this day a title…"
+        maxlength="200"
+        [disabled]="!editable()"
+        [ngModel]="entry().title"
+        (ngModelChange)="edit($event, entry().body)"
+      />
+      <label class="sr-only" for="body">Entry text</label
+      ><textarea
+        id="body"
+        placeholder="What’s on your mind?"
+        [disabled]="!editable()"
+        [ngModel]="entry().body"
+        (ngModelChange)="edit(entry().title, $event)"
+      ></textarea>
+      <div class="editor-actions">
+        <button
+          (click)="diary.save(selected())"
+          [disabled]="
+            !editable() ||
+            entry().status === 'conflict' ||
+            entry().status === 'saving' ||
+            entry().status === 'saved' ||
+            entry().status === 'blank'
+          "
+        >
+          Save now
+        </button>
+        @if (entry().revision > 0 && entry().status !== 'conflict') {
+          <button (click)="restoreSavedText()" [disabled]="!editable()">Restore saved text</button>
+        }
+        @if (entry().revision > 0 || entry().title || entry().body) {
+          <button
+            class="delete"
+            (click)="deleteEntry()"
+            [disabled]="!editable() || entry().status === 'conflict'"
+          >
+            {{ entry().revision ? 'Delete entry' : 'Discard draft' }}
+          </button>
+        }
+      </div>
+      <div class="editor-bottom">
+        <span>Plain text. A little room to breathe.</span
+        ><span>{{ entry().body.length }} characters</span>
+      </div>
+    </section>
+  </div>
+  <footer>WebDairy / Persistent sample diary <span>Timezone: Asia/Kolkata</span></footer>
 </main>
