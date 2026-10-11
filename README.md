@@ -45,7 +45,11 @@ bash scripts/install.sh
 bash scripts/dev.sh
 ```
 
-Startup checks ports, starts the labelled synthetic database, applies numbered
+The Go backend automatically applies pending migrations before accepting requests.
+For local Windows/Mac use, run `go run ./cmd/diary` from `backend`; no separate
+`-migrate` command is required. Already-applied migrations are skipped.
+
+Cloud startup checks ports, starts the labelled synthetic database, applies numbered
 migrations 1–6, then starts Go on loopback 8080 and Angular on loopback 4200 with
 the same-origin `/api` proxy. Ctrl+C stops its app children; PostgreSQL stays up.
 

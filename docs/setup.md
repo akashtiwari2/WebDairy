@@ -35,9 +35,13 @@ Now run these commands from `backend` on either Windows or Mac:
 
 ```bash
 go mod download
-go run ./cmd/diary -migrate
 go run ./cmd/diary
 ```
+
+Backend startup automatically applies pending migrations before accepting requests.
+Already-applied migrations are skipped; existing diary data is preserved. No separate
+`-migrate` command is needed. Keep `-migrate` only when you want to apply migrations
+and exit without starting the server.
 
 Leave this terminal running. In a **second terminal**, from `WebDairy/frontend`:
 
@@ -62,7 +66,7 @@ Keep `.env` local: it is ignored by Git. Only `.env.example` is shared. On a new
 clone, copy that template once and use that machine's connection. The cloud's local
 `.env` uses a synthetic trust-auth development database; those values are not your
 Windows/Mac credentials. Use `-env PATH` for an explicit file location, e.g.
-`go run ./cmd/diary -env .env.local -migrate`. A missing default file is allowed when
+`go run ./cmd/diary -env .env.local`. A missing default file is allowed when
 DATABASE_URL is set in the process; an explicit missing or malformed file fails
 without printing its contents. The frontend must never receive DATABASE_URL.
 
@@ -76,7 +80,8 @@ data only. Port conflicts are reported without stopping unrelated services.
 
 - Backend unavailable: keep the Go terminal running; inspect its current error.
 - Database not-ready: verify `pg_isready` and actual credentials with `psql`, then
-  run `go run ./cmd/diary -migrate` from backend. Health requires migration 6.
+  restart with `go run ./cmd/diary` from backend. Startup applies pending migrations
+  and exits with an error if migration fails. Health requires migration 6.
 - Password authentication failed: the PostgreSQL role/password in DATABASE_URL
   differs from your actual database account. This is separate from WebDairy login.
 - Login expired: unlock after logging in again; encrypted pending drafts stay local.
@@ -105,7 +110,7 @@ new cloud snapshot/task.
 
 Stop your own backend/frontend processes. From the cloned repository root run
 `git pull`; keep your backend `.env` configured. From `backend`, run
-`go run ./cmd/diary -migrate`, then `go run ./cmd/diary`. From `frontend`, run
+`go run ./cmd/diary` (migrations run automatically). From `frontend`, run
 `npm ci`, then `npm start`. The migration preserves encrypted entries and old
 Phase 1 development data. Unlock, then use Search / Trash, Settings or Backups.
 See [backup and restore](backup.md) before switching machines.

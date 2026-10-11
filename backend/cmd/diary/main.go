@@ -57,14 +57,17 @@ func run() error {
 		return errors.New("database configuration is invalid")
 	}
 	defer pool.Close()
-	if *migrate {
+	if !*resetLogin || *migrate {
 		migrationCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-		defer cancel()
-		if err := database.Migrate(migrationCtx, pool, *migrationPath); err != nil {
-			return err
+		err := database.Migrate(migrationCtx, pool, *migrationPath)
+		cancel()
+		if err != nil {
+			return fmt.Errorf("database migration failed: %w", err)
 		}
 		fmt.Println("Database migrations ready (versions 1 through 6).")
-		return nil
+		if *migrate {
+			return nil
+		}
 	}
 	if *resetLogin {
 		if !term.IsTerminal(int(os.Stdin.Fd())) {
