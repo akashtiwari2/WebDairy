@@ -4,6 +4,7 @@ go 1.27.1
 
 require (
 	github.com/jackc/pgx/v5 v5.11.0
+	github.com/joho/godotenv v1.5.1
 	github.com/labstack/echo/v4 v4.16.0
 	golang.org/x/crypto v0.53.0
 	golang.org/x/term v0.47.0

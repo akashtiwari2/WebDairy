@@ -230,3 +230,180 @@ html[data-theme='dark'] main .delete {
 main .workspace.calendar-hidden {
   grid-template-columns: 1fr;
 }
+
+/* Shared surface colors keep forms and the diary consistent in both themes. */
+:root {
+  --paper: #ffffff;
+  --ink: #253d32;
+  --muted: #65796c;
+  --border: #dfe7df;
+  --accent: #305d47;
+  --soft: #eef3ed;
+  --danger: #963d38;
+  color-scheme: light;
+}
+html[data-theme='dark'] {
+  --paper: #1e3027;
+  --ink: #e0e8dd;
+  --muted: #b0c5ac;
+  --border: #41594a;
+  --accent: #40674d;
+  --soft: #273e30;
+  --danger: #ffb2aa;
+}
+.app-header nav {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+.app-header nav button {
+  margin: 0;
+  padding: 8px 11px;
+  font-size: 12px;
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+}
+.app-header nav button[aria-pressed='true'] {
+  background: var(--soft);
+  color: var(--ink);
+  border-color: var(--border);
+}
+.month-picker input {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--paper);
+  color: var(--ink);
+  padding: 6px;
+  margin-top: 4px;
+}
+.preferences-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 20px;
+}
+.preferences-grid p {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+app-auth-panel .panel[aria-label='Vault settings'] {
+  max-width: 840px;
+  padding: 24px 28px;
+}
+app-auth-panel .panel[aria-label='Vault settings'] h2 {
+  margin: 12px 0 16px;
+}
+app-auth-panel .preferences-grid label {
+  margin: 10px 0;
+}
+app-auth-panel .preferences-grid p {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.security-section {
+  border-top: 1px solid var(--border);
+  padding: 14px 0;
+}
+.security-section summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 4px;
+}
+.security-section form {
+  padding: 0 4px;
+}
+@media (min-width: 900px) and (min-height: 650px) {
+  app-root.diary-mode {
+    display: flex;
+    flex-direction: column;
+    height: 100dvh;
+  }
+  app-root.diary-mode .app-header {
+    flex-shrink: 0;
+  }
+  main.diary-view {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    flex: 1;
+    min-height: 0;
+  }
+  .diary-view app-auth-panel:empty {
+    display: none;
+  }
+  .diary-view .intro,
+  .diary-view .notice,
+  .diary-view footer {
+    flex-shrink: 0;
+  }
+  .diary-view .workspace {
+    flex: 1;
+    min-height: 0;
+  }
+  .diary-view aside {
+    max-height: 100%;
+    overflow: auto;
+  }
+  main.diary-view .editor {
+    min-height: 0;
+    overflow: auto;
+  }
+  .diary-view .title,
+  .diary-view .editor-top,
+  .diary-view .editor-actions,
+  .diary-view .editor-bottom {
+    flex-shrink: 0;
+  }
+  main.diary-view textarea {
+    min-height: 96px;
+    resize: none;
+    overflow: auto;
+  }
+}
+@media (max-width: 760px) {
+  .app-header nav {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 4px;
+  }
+  .app-header nav button {
+    font-size: 11px;
+    padding: 7px 8px;
+  }
+  .preferences-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+main .conflict-panel {
+  padding: 12px;
+  background: var(--soft);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12px;
+  margin-top: 12px;
+}
+main .conflict-panel h3 {
+  margin-top: 0;
+}
+main .conflict-panel pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 120px;
+  overflow: auto;
+  font: inherit;
+}
+
+@media (max-width: 760px) {
+  .app-header nav button,
+  main .editor-actions button,
+  .diary-navigation button {
+    min-height: 40px;
+  }
+  main.diary-view .diary-navigation input {
+    min-height: 40px;
+    font-size: 16px;
+  }
+}

@@ -17,16 +17,24 @@ export function todayInKolkata(now = new Date()): string {
   imports: [FormsModule, AuthPanel, LibraryPanel, BackupPanel],
   templateUrl: './app.html',
   styleUrl: './app.css',
+  host: { '[class.diary-mode]': 'diaryView()' },
 })
 export class App {
   readonly preferences = inject(PreferencesService);
   readonly tools = signal<'diary' | 'library' | 'backup'>('diary');
-  readonly calendarOpen = signal(true);
+  readonly calendarOpen = signal(!window.matchMedia('(max-width: 760px)').matches);
   private opened = false;
   readonly diary = inject(DiaryService);
   readonly vault = inject(VaultService);
   readonly backup = inject(BackupService);
   readonly settings = signal(false);
+  readonly diaryView = computed(
+    () =>
+      this.vault.state() === 'unlocked' &&
+      this.tools() === 'diary' &&
+      !this.settings() &&
+      !this.vault.recoveryPurpose(),
+  );
   readonly today = signal(todayInZone(this.preferences.value().timezone));
   readonly selected = signal(this.today());
   readonly month = signal(this.today().slice(0, 7));
@@ -141,6 +149,10 @@ export class App {
     this.selected.set(date);
     this.month.set(date.slice(0, 7));
     await this.diary.load(date);
+  }
+  openTool(tool: 'diary' | 'library' | 'backup') {
+    this.settings.set(false);
+    this.tools.set(tool);
   }
   openResult(date: string) {
     this.tools.set('diary');

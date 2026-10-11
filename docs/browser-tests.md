@@ -35,3 +35,9 @@ passphrase and recovery independently, choosing new local logins and comparing
 all restored dates/text/trash/preferences. Temporary downloads are removed on exit.
 SQL integration injects a failure after replacement starts and verifies full rollback;
 it also checks stage binding/expiry, new epochs and tombstone resurrection protection.
+
+The layout checks verify a six-week calendar fits desktop windows at 1440×900,
+1366×768 and 1024×650 without page or horizontal overflow, while retaining a usable
+editor and visible save controls. Settings occupies its own view. Long diary text
+scrolls inside the editor; narrow/mobile and expanded forms can use normal page
+scrolling so controls remain reachable.

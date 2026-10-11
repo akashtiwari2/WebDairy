@@ -82,6 +82,7 @@ export class AuthPanel {
   passphrase = '';
   confirmation = '';
   current = '';
+  currentLogin = '';
   recoveryInput = '';
   savedOffline = false;
   constructor() {
@@ -97,6 +98,7 @@ export class AuthPanel {
     this.passphrase = '';
     this.confirmation = '';
     this.current = '';
+    this.currentLogin = '';
     this.recoveryInput = '';
     this.savedOffline = false;
   }
@@ -156,7 +158,7 @@ export class AuthPanel {
     await this.v.perform(() => this.v.rotateRecovery(current));
   }
   async changeLogin() {
-    const current = this.current,
+    const current = this.currentLogin,
       next = this.loginPassword;
     this.clear();
     await this.v.perform(() => this.v.changeLogin(current, next));

@@ -1,20 +1,37 @@
-<header>
+<header class="app-header">
   <a class="brand" href="/" aria-label="WebDairy home"
     ><span class="mark">W</span> WebDairy <span class="tag">DEVELOPMENT</span></a
   >
   <span class="health" role="status">{{ backend() }}</span>
   @if (vault.state() === 'unlocked') {
     <nav aria-label="Diary tools">
-      <button (click)="tools.set('diary')">Diary</button
-      ><button (click)="tools.set('library')" [disabled]="vault.busy()">Search / Trash</button
-      ><button (click)="tools.set('backup')" [disabled]="vault.busy()">Backups</button>
-      <button (click)="settings.set(!settings())" [disabled]="vault.busy()">Settings</button
+      <button (click)="openTool('diary')" [attr.aria-pressed]="tools() === 'diary' && !settings()">
+        Diary</button
+      ><button
+        (click)="openTool('library')"
+        [attr.aria-pressed]="tools() === 'library' && !settings()"
+        [disabled]="vault.busy()"
+      >
+        Search / Trash</button
+      ><button
+        (click)="openTool('backup')"
+        [attr.aria-pressed]="tools() === 'backup' && !settings()"
+        [disabled]="vault.busy()"
+      >
+        Backups
+      </button>
+      <button
+        (click)="settings.set(!settings())"
+        [attr.aria-pressed]="settings()"
+        [disabled]="vault.busy()"
+      >
+        Settings</button
       ><button id="lock-vault" (click)="lock()" [disabled]="vault.busy()">Lock</button
       ><button (click)="logout()" [disabled]="vault.busy()">Log out</button>
     </nav>
   }
 </header>
-<main>
+<main [class.diary-view]="diaryView()">
   @if (vault.error()) {
     <div class="save-message" role="alert">{{ vault.error() }}</div>
   }
@@ -22,36 +39,44 @@
   @if (
     vault.state() === 'setup' ||
     (vault.state() === 'locked' && vault.auth.authenticated()) ||
-    (vault.state() === 'unlocked' && tools() === 'backup')
+    (vault.state() === 'unlocked' &&
+      tools() === 'backup' &&
+      !settings() &&
+      !vault.recoveryPurpose())
   ) {
     <app-backup-panel />
   }
-  @if (vault.state() === 'unlocked' && tools() === 'library') {
+  @if (
+    vault.state() === 'unlocked' && tools() === 'library' && !settings() && !vault.recoveryPurpose()
+  ) {
     <app-library-panel (open)="openResult($event)" />
   }
-  @if (vault.state() === 'unlocked' && tools() === 'diary') {
+  @if (diaryView()) {
     <div class="intro">
       <div>
-        <p class="eyebrow">A LITTLE SPACE FOR YOUR THOUGHTS</p>
+        <p class="eyebrow">YOUR PERSONAL SPACE</p>
         <h1>Your days, in your words.</h1>
-        <p>Look back. Be here. Write ahead.</p>
       </div>
-      <button (click)="goToday()">Go to today</button>
+      <div class="diary-navigation">
+        <label class="sr-only" for="jump-date">Go to date</label>
+        <input id="jump-date" type="date" [ngModel]="selected()" (ngModelChange)="select($event)" />
+        <button (click)="goToday()">Today</button>
+        <button
+          class="calendar-toggle"
+          (click)="calendarOpen.set(!calendarOpen())"
+          [attr.aria-expanded]="calendarOpen()"
+          aria-controls="diary-calendar"
+        >
+          {{ calendarOpen() ? 'Hide calendar' : 'Show calendar' }}
+        </button>
+      </div>
     </div>
     <div class="notice" role="note">
-      Phase 3 · Keep an encrypted backup file and its recovery key in separate safe places. Back up
-      before switching computers. Wait for Saved before closing the browser.
+      Wait for Saved before closing. Keep an encrypted backup and your recovery key separately.
     </div>
-    <button
-      class="calendar-toggle"
-      (click)="calendarOpen.set(!calendarOpen())"
-      [attr.aria-expanded]="calendarOpen()"
-    >
-      Show / hide calendar
-    </button>
     <div class="workspace" [class.calendar-hidden]="!calendarOpen()">
       @if (calendarOpen()) {
-        <aside aria-label="Calendar">
+        <aside id="diary-calendar" aria-label="Calendar">
           <div class="month">
             <button (click)="moveMonth(-1)" aria-label="Previous month">‹</button>
             <h2>{{ monthLabel() }}</h2>
@@ -86,18 +111,12 @@
               }
             }
           </div>
-          <label class="date-picker"
-            >Jump to any date<input
-              type="date"
-              [ngModel]="selected()"
-              (ngModelChange)="select($event)"
-          /></label>
           @if (diary.indexError()) {
             <p class="hint" role="alert">
               {{ diary.indexError() }} <button (click)="diary.loadDates()">Retry markers</button>
             </p>
           }
-          <p class="hint">Past, present and future dates are all open for writing.</p>
+          <p class="hint">A dot marks a saved day.</p>
         </aside>
       }
       <section class="editor" aria-label="Diary editor">
@@ -193,7 +212,7 @@
       </section>
     </div>
     <footer>
-      WebDairy / Encrypted local diary <span>Timezone: {{ preferences.value().timezone }}</span>
+      Changes save automatically <span>Timezone: {{ preferences.value().timezone }}</span>
     </footer>
   }
 </main>

@@ -93,6 +93,42 @@ try {
   );
   await waitFor(`!!document.querySelector('#body')`);
   assert.equal(await action(`return a.vault.state();`), "unlocked");
+  // Desktop diary fits the viewport, including a six-week calendar month.
+  for (const [width, height] of [
+    [1440, 900],
+    [1366, 768],
+    [1024, 650],
+  ]) {
+    await send("Emulation.setDeviceMetricsOverride", {
+      width,
+      height,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+    await action(`a.calendarOpen.set(true);a.setMonth('2026-08');`);
+    await sleep(100);
+    const layout = await evaluate(
+      `(()=>{const editor=document.querySelector('.editor'),body=document.querySelector('#body');return {pageHeight:document.documentElement.scrollHeight,windowHeight:window.innerHeight,pageWidth:document.documentElement.scrollWidth,windowWidth:window.innerWidth,bodyHeight:body.clientHeight,buttonsVisible:[...document.querySelectorAll('.editor-actions button')].every(b=>b.getBoundingClientRect().bottom<=window.innerHeight)};})()`,
+    );
+    assert.ok(
+      layout.pageHeight <= layout.windowHeight + 1,
+      "Desktop diary has unwanted page scroll at " +
+        width +
+        "x" +
+        height +
+        ": " +
+        JSON.stringify(layout),
+    );
+    assert.ok(layout.pageWidth <= layout.windowWidth, "Horizontal overflow");
+    assert.ok(layout.bodyHeight >= 96, "Editor remains usable");
+    assert.equal(layout.buttonsVisible, true, "Save controls stay visible");
+  }
+  await send("Emulation.setDeviceMetricsOverride", {
+    width: 1366,
+    height: 768,
+    deviceScaleFactor: 1,
+    mobile: false,
+  });
   for (const [date, title, body] of [
     ["2024-02-29", "SYNTHETIC LEAP", "SYNTHETIC OLD BODY"],
     ["2099-10-20", "SYNTHETIC FUTURE", "SYNTHETIC FUTURE BODY"],
@@ -101,6 +137,28 @@ try {
       `await a.select(${JSON.stringify(date)});a.diary.edit(a.selected(),${JSON.stringify(title)},${JSON.stringify(body)});await a.diary.save(a.selected());return a.entry().status;`,
     );
     assert.equal(result, "saved");
+  }
+  if (process.env.WEBDIARY_BROWSER_SCREENSHOT_DIR) {
+    mkdirSync(process.env.WEBDIARY_BROWSER_SCREENSHOT_DIR, { recursive: true });
+    const shot = await send("Page.captureScreenshot", { format: "png" });
+    writeFileSync(
+      process.env.WEBDIARY_BROWSER_SCREENSHOT_DIR + "/diary-desktop.png",
+      Buffer.from(shot.data, "base64"),
+    );
+    await action(`a.settings.set(true);`);
+    await waitFor(`!!document.querySelector('.preferences-grid')`);
+    assert.equal(
+      await evaluate(`!!document.querySelector('#body')`),
+      false,
+      "Settings uses its own view",
+    );
+    const settings = await send("Page.captureScreenshot", { format: "png" });
+    writeFileSync(
+      process.env.WEBDIARY_BROWSER_SCREENSHOT_DIR + "/settings-desktop.png",
+      Buffer.from(settings.data, "base64"),
+    );
+    await action(`a.openTool('diary');`);
+    await waitFor(`!!document.querySelector('#body')`);
   }
   const list = await action(
     `return await a.vault.auth.request('/api/entries');`,
@@ -233,7 +291,7 @@ try {
     "SYNTHETIC STORAGE FAILURE",
   );
   await action(
-    `a.diary.drafts.put=window.originalPut;await a.diary.save(a.selected());await a.vault.perform(()=>a.vault.changeLogin('synthetic login password','replacement synthetic login'));`,
+    `a.diary.drafts.put=window.originalPut;await a.diary.save(a.selected());p.current='recovered synthetic passphrase';p.currentLogin='synthetic login password';p.loginPassword='replacement synthetic login';await p.changeLogin();`,
   );
   assert.equal(await action(`return a.vault.state();`), "login");
   await action(
@@ -511,6 +569,61 @@ try {
     );
     assert.equal(await action(`return a.selected()===a.today();`), true);
   }
+  // Long text scrolls inside the editor, without moving desktop save controls.
+  await send("Emulation.setDeviceMetricsOverride", {
+    width: 1366,
+    height: 768,
+    deviceScaleFactor: 1,
+    mobile: false,
+  });
+  await action(
+    `a.openTool('diary');await a.select('2099-10-20');a.diary.edit(a.selected(),'SYNTHETIC LONG ENTRY',('SYNTHETIC LONG TEXT'+String.fromCharCode(10)).repeat(400));await a.diary.save(a.selected());`,
+  );
+  await sleep(100);
+  assert.equal(
+    await evaluate(
+      `document.querySelector('#body').scrollHeight>document.querySelector('#body').clientHeight`,
+    ),
+    true,
+  );
+  assert.equal(
+    await evaluate(
+      `document.documentElement.scrollHeight<=window.innerHeight+1`,
+    ),
+    true,
+  );
+  assert.equal(
+    await evaluate(
+      `[...document.querySelectorAll('.editor-actions button')].every(b=>b.getBoundingClientRect().bottom<=window.innerHeight)`,
+    ),
+    true,
+  );
+  // A fresh mobile load starts with a collapsed calendar and reachable navigation.
+  await action(`await a.vault.lock();`);
+  await send("Emulation.setDeviceMetricsOverride", {
+    width: 390,
+    height: 844,
+    deviceScaleFactor: 1,
+    mobile: true,
+  });
+  await reload();
+  await waitFor(`!!document.querySelector('#unlock-pass')`);
+  await action(
+    `p.passphrase='recovered synthetic passphrase';await p.unlock();`,
+  );
+  await waitFor(`!!document.querySelector('#body')`);
+  assert.equal(await action(`return a.calendarOpen();`), false);
+  assert.equal(
+    await evaluate(`document.documentElement.scrollWidth<=window.innerWidth`),
+    true,
+  );
+  if (process.env.WEBDIARY_BROWSER_SCREENSHOT_DIR) {
+    const mobile = await send("Page.captureScreenshot", { format: "png" });
+    writeFileSync(
+      process.env.WEBDIARY_BROWSER_SCREENSHOT_DIR + "/diary-mobile.png",
+      Buffer.from(mobile.data, "base64"),
+    );
+  }
   // Authenticated ciphertext corruption cannot open an empty replacement vault.
   await action(
     `const page=await a.vault.auth.request('/api/entries');const r=page.records[0];await a.vault.auth.request('/api/entries/'+r.id,'PUT',{crypto_version:1,vault_epoch:a.vault.vault.vault_epoch,nonce:r.nonce,ciphertext:'AAAAAAAAAAAAAAAAAAAAAA==',expected_revision:r.revision,operation_id:crypto.randomUUID()});await a.vault.perform(()=>a.vault.lock());p.passphrase='recovered synthetic passphrase';await p.unlock();`,
@@ -519,7 +632,7 @@ try {
   assert.equal(await action(`return a.diary.states().size;`), 0);
   assert.ok((await action(`return a.vault.error();`)).includes("integrity"));
   console.log(
-    `PASS: setup, encrypted API/IndexedDB, wrong keys, second-tab exclusion, lock/reload drafts, passphrase change, recovery rotation, auto-lock, storage failure, login change and tampering; Phase 3 local search, occupied trash restore/purge, encrypted file download/emergency export, failed-safety preservation, invalid-file preservation, stale-safety rejection, lost-commit retry and clean-database recovery with BOTH passphrase and recovery key. Setup KDF flow: ${Math.round(setup.ms)} ms.`,
+    `PASS: desktop viewport fit, long-text editor scrolling, independent settings/mobile navigation, setup, encrypted API/IndexedDB, wrong keys, second-tab exclusion, lock/reload drafts, passphrase change, recovery rotation, auto-lock, storage failure, login change and tampering; Phase 3 local search, occupied trash restore/purge, encrypted file download/emergency export, failed-safety preservation, invalid-file preservation, stale-safety rejection, lost-commit retry and clean-database recovery with BOTH passphrase and recovery key. Setup KDF flow: ${Math.round(setup.ms)} ms.`,
   );
 } finally {
   ws.close();

@@ -7,23 +7,33 @@ and ensure PostgreSQL is accepting connections. Use the actual PostgreSQL role,
 password and port configured on your machine; `diary_user` is just an example.
 Create a separate empty database for WebDairy, with a role allowed to migrate it.
 
-In the backend terminal, from `WebDairy/backend`, set the connection **before**
-running migrations/server. Replace placeholders with your own values locally.
-URL-encode password characters such as `@`, `:`, `#` and `%`.
+In `WebDairy/backend`, create `.env` once from the included template and edit it
+with your actual PostgreSQL connection. URL-encode password characters such as
+`@`, `:`, `#` and `%`. The PostgreSQL role/password is separate from the app login.
 
-Windows PowerShell:
+Windows PowerShell (first setup only):
 
 ```powershell
-$env:DATABASE_URL = 'postgres://YOUR_ROLE:YOUR_PASSWORD@127.0.0.1:5432/diary_db?sslmode=disable'
-go mod download
-go run ./cmd/diary -migrate
-go run ./cmd/diary
+Copy-Item .env.example .env
+notepad .env
 ```
 
-Mac terminal:
+Mac terminal (first setup only):
 
 ```bash
-export DATABASE_URL='postgres://YOUR_ROLE:YOUR_PASSWORD@127.0.0.1:5432/diary_db?sslmode=disable'
+cp .env.example .env
+open -e .env
+```
+
+Save this line with **your own values** in the file:
+
+```dotenv
+DATABASE_URL=postgres://YOUR_ROLE:YOUR_PASSWORD@127.0.0.1:5432/diary_db?sslmode=disable
+```
+
+Now run these commands from `backend` on either Windows or Mac:
+
+```bash
 go mod download
 go run ./cmd/diary -migrate
 go run ./cmd/diary
@@ -41,10 +51,20 @@ vault passphrase, then save/verify the offline recovery key. On later visits log
 in and unlock. `npm start` includes the proxy configuration; plain `ng serve`
 without that configuration cannot forward `/api` to Go.
 
-The variable is held by that terminal and inherited by the Go process, not saved
-in Go source. A new terminal needs it again. `.env` is not automatically loaded by
-this backend. Never replace `os.Getenv("DATABASE_URL")` with the connection string:
-Getenv expects the **variable's name**. Do not commit credentials.
+Go automatically reads `.env` in the backend working directory for server,
+migration and login-reset commands. You do not need to export the variable again
+in every new terminal. A process variable set explicitly takes precedence over the
+file. To switch to the file in an old terminal, remove its override: PowerShell
+`Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue`, or Mac
+`unset DATABASE_URL`. Changes to `.env` take effect after restarting Go.
+
+Keep `.env` local: it is ignored by Git. Only `.env.example` is shared. On a new
+clone, copy that template once and use that machine's connection. The cloud's local
+`.env` uses a synthetic trust-auth development database; those values are not your
+Windows/Mac credentials. Use `-env PATH` for an explicit file location, e.g.
+`go run ./cmd/diary -env .env.local -migrate`. A missing default file is allowed when
+DATABASE_URL is set in the process; an explicit missing or malformed file fails
+without printing its contents. The frontend must never receive DATABASE_URL.
 
 ## Cloud development
 
@@ -84,7 +104,7 @@ new cloud snapshot/task.
 ## Updating from Phase 2
 
 Stop your own backend/frontend processes. From the cloned repository root run
-`git pull`; keep your local connection variable configured. From `backend`, run
+`git pull`; keep your backend `.env` configured. From `backend`, run
 `go run ./cmd/diary -migrate`, then `go run ./cmd/diary`. From `frontend`, run
 `npm ci`, then `npm start`. The migration preserves encrypted entries and old
 Phase 1 development data. Unlock, then use Search / Trash, Settings or Backups.

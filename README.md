@@ -90,7 +90,7 @@ ciphertext; the database still sees record IDs, revisions, sizes and write timin
 
 ## Login reset
 
-From `backend`, with `DATABASE_URL` set, run:
+From `backend`, with `DATABASE_URL` configured in `.env` or the process, run:
 
 ```bash
 go run ./cmd/diary -reset-login
@@ -110,5 +110,7 @@ scripts/       Install/start and isolated verification tools
 docs/          Setup, API, security design and remaining milestones
 ```
 
-`DATABASE_URL` may override the local connection; never commit credentials.
+The backend loads `backend/.env` automatically when run from `backend`. Copy
+[the template](backend/.env.example) once and set your own connection. Explicit
+process variables override the file; restart Go after edits. Never commit credentials.
 Generated binaries, `.env` files, logs and diary exports are ignored.

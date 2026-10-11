@@ -148,107 +148,115 @@
   <section class="panel" aria-label="Vault settings">
     <h2>Vault settings</h2>
     <p class="hint">WebDairy · Phase 3 local release · Backup format 1</p>
-    <label
-      >Timezone<input
-        list="timezone-list"
-        [ngModel]="preferences.value().timezone"
-        (change)="setPreference('timezone', $any($event.target).value)" /><datalist
-        id="timezone-list"
+    <div class="preferences-grid">
+      <label
+        >Timezone<input
+          list="timezone-list"
+          [ngModel]="preferences.value().timezone"
+          (change)="setPreference('timezone', $any($event.target).value)" /><datalist
+          id="timezone-list"
+        >
+          <option value="Asia/Kolkata"></option>
+          <option value="UTC"></option>
+          @for (zone of preferences.zones; track zone) {
+            <option [value]="zone"></option>
+          }</datalist
+      ></label>
+      <p>Timezone changes Today and displayed timestamps, never an entry's selected date.</p>
+      <label
+        >Theme<select
+          [ngModel]="preferences.value().theme"
+          (ngModelChange)="setPreference('theme', $event)"
+        >
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+          <option value="system">System</option>
+        </select></label
       >
-        <option value="Asia/Kolkata"></option>
-        <option value="UTC"></option>
-        @for (zone of preferences.zones; track zone) {
-          <option [value]="zone"></option>
-        }</datalist
-    ></label>
-    <p>Timezone changes Today and displayed timestamps, never an entry's selected date.</p>
-    <label
-      >Theme<select
-        [ngModel]="preferences.value().theme"
-        (ngModelChange)="setPreference('theme', $event)"
-      >
-        <option value="light">Light</option>
-        <option value="dark">Dark</option>
-        <option value="system">System</option>
-      </select></label
-    >
-    <label
-      >Trash retention (1–365 days)<input
-        type="number"
-        min="1"
-        max="365"
-        [ngModel]="preferences.value().trash_days"
-        (change)="setPreference('trash_days', +$any($event.target).value)"
-    /></label>
-    <p>
-      Default: 30 days. Delete expired entries with confirmation in Trash. Backup copies may retain
-      them.
-    </p>
-    <label
-      >Lock after inactivity (1–60 minutes)<input
-        id="idle-minutes"
-        type="number"
-        min="1"
-        max="60"
-        [ngModel]="v.idleMinutes()"
-        (ngModelChange)="v.setIdle($event)"
-    /></label>
-    <form (ngSubmit)="changePass()">
-      <h3>Change vault passphrase</h3>
       <label
-        >Current vault passphrase<input
-          name="current"
-          type="password"
-          [(ngModel)]="current"
-          autocomplete="off"
-          required /></label
-      ><label
-        >New vault passphrase<input
-          name="pass"
-          type="password"
-          [(ngModel)]="passphrase"
-          autocomplete="new-password"
-          minlength="12"
-          required /></label
-      ><label
-        >Confirm new vault passphrase<input
-          name="confirm"
-          type="password"
-          [(ngModel)]="confirmation"
-          autocomplete="new-password"
-          required /></label
-      ><button [disabled]="v.busy()">Change passphrase</button>
-    </form>
-    <form (ngSubmit)="rotate()">
-      <h3>Replace recovery key</h3>
+        >Trash retention (1–365 days)<input
+          type="number"
+          min="1"
+          max="365"
+          [ngModel]="preferences.value().trash_days"
+          (change)="setPreference('trash_days', +$any($event.target).value)"
+      /></label>
+      <p>
+        Default: 30 days. Delete expired entries with confirmation in Trash. Backup copies may
+        retain them.
+      </p>
       <label
-        >Current vault passphrase<input
-          name="current"
-          type="password"
-          [(ngModel)]="current"
-          autocomplete="off"
-          required /></label
-      ><button [disabled]="v.busy()">Create replacement recovery key</button>
-    </form>
-    <form (ngSubmit)="changeLogin()">
-      <h3>Change login password</h3>
-      <p>This locks the vault and logs out every session.</p>
-      <label
-        >Current login password<input
-          name="current"
-          type="password"
-          [(ngModel)]="current"
-          autocomplete="current-password"
-          required /></label
-      ><label
-        >New login password<input
-          name="login"
-          type="password"
-          [(ngModel)]="loginPassword"
-          autocomplete="new-password"
-          minlength="12"
-          required /></label
-      ><button [disabled]="v.busy()">Change login password</button>
-    </form>
+        >Lock after inactivity (1–60 minutes)<input
+          id="idle-minutes"
+          type="number"
+          min="1"
+          max="60"
+          [ngModel]="v.idleMinutes()"
+          (ngModelChange)="v.setIdle($event)"
+      /></label>
+    </div>
+    <details class="security-section">
+      <summary>Change vault passphrase</summary>
+      <form (ngSubmit)="changePass()">
+        <label
+          >Current vault passphrase<input
+            name="current"
+            type="password"
+            [(ngModel)]="current"
+            autocomplete="off"
+            required /></label
+        ><label
+          >New vault passphrase<input
+            name="pass"
+            type="password"
+            [(ngModel)]="passphrase"
+            autocomplete="new-password"
+            minlength="12"
+            required /></label
+        ><label
+          >Confirm new vault passphrase<input
+            name="confirm"
+            type="password"
+            [(ngModel)]="confirmation"
+            autocomplete="new-password"
+            required /></label
+        ><button [disabled]="v.busy()">Change passphrase</button>
+      </form>
+    </details>
+    <details class="security-section">
+      <summary>Replace recovery key</summary>
+      <form (ngSubmit)="rotate()">
+        <label
+          >Current vault passphrase<input
+            name="current"
+            type="password"
+            [(ngModel)]="current"
+            autocomplete="off"
+            required /></label
+        ><button [disabled]="v.busy()">Create replacement recovery key</button>
+      </form>
+    </details>
+    <details class="security-section">
+      <summary>Change login password</summary>
+      <form (ngSubmit)="changeLogin()">
+        <p>This locks the vault and logs out every session.</p>
+        <label
+          >Current login password<input
+            name="current-login"
+            type="password"
+            [(ngModel)]="currentLogin"
+            autocomplete="current-password"
+            required /></label
+        ><label
+          >New login password<input
+            name="login"
+            type="password"
+            [(ngModel)]="loginPassword"
+            autocomplete="new-password"
+            minlength="12"
+            required /></label
+        ><button [disabled]="v.busy()">Change login password</button>
+      </form>
+    </details>
   </section>
 }
