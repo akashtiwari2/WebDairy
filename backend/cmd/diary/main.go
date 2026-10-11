@@ -12,14 +12,16 @@ import (
 	"time"
 
 	"github.com/akashtiwari2/WebDairy/backend/internal/database"
-	"github.com/akashtiwari2/WebDairy/backend/internal/entries"
+	"github.com/akashtiwari2/WebDairy/backend/internal/private"
 	"github.com/akashtiwari2/WebDairy/backend/internal/server"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"golang.org/x/term"
 )
 
 func run() error {
 	migrate := flag.Bool("migrate", false, "apply pending numbered database migrations and exit")
 	migrationPath := flag.String("migrations", "../migrations", "migration directory")
+	resetLogin := flag.Bool("reset-login", false, "reset login password interactively and invalidate all sessions; vault unchanged")
 	flag.Parse()
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
@@ -38,16 +40,45 @@ func run() error {
 		if err := database.Migrate(migrationCtx, pool, *migrationPath); err != nil {
 			return err
 		}
-		fmt.Println("Database migrations ready (versions 1 through 4).")
+		fmt.Println("Database migrations ready (versions 1 through 5).")
+		return nil
+	}
+	if *resetLogin {
+		if !term.IsTerminal(int(os.Stdin.Fd())) {
+			return errors.New("reset-login requires an interactive terminal")
+		}
+		fmt.Print("New login password (at least 12 characters): ")
+		password, err := term.ReadPassword(int(os.Stdin.Fd()))
+		fmt.Println()
+		if err != nil {
+			return err
+		}
+		defer clear(password)
+		fmt.Print("Confirm new login password: ")
+		confirmation, err := term.ReadPassword(int(os.Stdin.Fd()))
+		fmt.Println()
+		if err != nil {
+			return err
+		}
+		defer clear(confirmation)
+		if string(password) != string(confirmation) {
+			return errors.New("passwords did not match")
+		}
+		resetCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+		defer cancel()
+		if err := (&private.Store{Pool: pool}).ResetLogin(resetCtx, string(password)); err != nil {
+			return err
+		}
+		fmt.Println("Login reset. All sessions revoked. Encrypted vault unchanged.")
 		return nil
 	}
 	e := server.New(func(ctx context.Context) error {
 		var version int
-		err := pool.QueryRow(ctx, "SELECT version FROM schema_migrations WHERE version = 4").Scan(&version)
+		err := pool.QueryRow(ctx, "SELECT version FROM schema_migrations WHERE version = 5").Scan(&version)
 		return err
-	}, &entries.Store{Pool: pool})
+	}, &private.Store{Pool: pool})
 	addr := "127.0.0.1:8080"
-	fmt.Println("WebDairy Phase 1 backend listening on", addr)
+	fmt.Println("WebDairy Phase 2 backend listening on", addr)
 	failure := make(chan error, 1)
 	go func() { failure <- e.Start(addr) }()
 	select {

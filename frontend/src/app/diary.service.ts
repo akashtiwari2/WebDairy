@@ -1,21 +1,28 @@
-import { DestroyRef, Injectable, inject, signal } from '@angular/core';
-
-export interface Entry {
-  date: string;
-  title: string;
-  body: string;
-  revision: number;
-  created_at: string;
-  updated_at: string;
-}
+import { Injectable, computed, inject, signal } from '@angular/core';
+import { AuthService, APIError } from './auth.service';
+import { VaultService } from './vault.service';
+import { DraftStore } from './drafts';
+import {
+  Payload,
+  OpaqueRecord,
+  OpaqueWrite,
+  context,
+  encryptJSON,
+  decryptJSON,
+  validatePayload,
+  uuid,
+} from './vault-crypto';
+export { validCivilDate } from './vault-crypto';
 export type SaveStatus =
   'loading' | 'blank' | 'unsaved' | 'saving' | 'saved' | 'failed' | 'conflict' | 'deleting';
-export interface EntryState {
-  title: string;
-  body: string;
+interface Entry extends Payload {
+  id: string;
   revision: number;
+}
+export interface EntryState extends Entry {
   savedTitle: string;
   savedBody: string;
+  savedTrashed: boolean;
   loaded: boolean;
   status: SaveStatus;
   error: string;
@@ -23,170 +30,233 @@ export interface EntryState {
   deleteRequested: boolean;
 }
 interface Attempt {
-  title: string;
-  body: string;
-  expected_revision: number;
-  operation_id: string;
+  write: OpaqueWrite;
+  payload: Payload;
 }
-const empty = (): EntryState => ({
-  title: '',
-  body: '',
-  revision: 0,
-  savedTitle: '',
-  savedBody: '',
-  loaded: false,
-  status: 'loading',
-  error: '',
-  conflict: undefined,
-  deleteRequested: false,
+interface Draft {
+  state: EntryState;
+  attempt?: Attempt;
+}
+function empty(date: string): EntryState {
+  const now = new Date().toISOString();
+  return {
+    id: crypto.randomUUID(),
+    date,
+    title: '',
+    body: '',
+    created_at: now,
+    updated_at: now,
+    trashed: false,
+    revision: 0,
+    savedTitle: '',
+    savedBody: '',
+    savedTrashed: false,
+    loaded: false,
+    status: 'blank',
+    error: '',
+    deleteRequested: false,
+  };
+}
+const dirty = (s: EntryState) =>
+  s.title !== s.savedTitle || s.body !== s.savedBody || s.trashed !== s.savedTrashed;
+const payload = (s: EntryState): Payload => ({
+  date: s.date,
+  title: s.title,
+  body: s.body,
+  created_at: s.created_at,
+  updated_at: s.updated_at,
+  trashed: s.trashed,
 });
-const dirty = (entry: EntryState) =>
-  entry.title !== entry.savedTitle || entry.body !== entry.savedBody;
-const hasText = (entry: Pick<EntryState, 'title' | 'body'>) =>
-  !!(entry.title.trim() || entry.body.trim());
-
-export function validCivilDate(value: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || value.startsWith('0000')) return false;
-  const date = new Date(`${value}T12:00:00Z`);
-  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
-}
-
 @Injectable({ providedIn: 'root' })
 export class DiaryService {
-  readonly states = signal<Record<string, EntryState>>({});
-  readonly dates = signal(new Set<string>());
+  readonly vault = inject(VaultService);
+  private readonly auth = inject(AuthService);
+  readonly states = signal(new Map<string, EntryState>());
+  readonly dates = computed(
+    () =>
+      new Set(
+        [...this.states().values()]
+          .filter(
+            (s) => s.revision > 0 && !s.savedTrashed && (s.savedTitle.trim() || s.savedBody.trim()),
+          )
+          .map((s) => s.date),
+      ),
+  );
   readonly indexError = signal('');
-  private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
-  private readonly flights = new Map<string, Promise<void>>();
-  private readonly loads = new Map<string, Promise<void>>();
-  private readonly pending = new Map<string, Attempt>();
-  private readonly retries = new Map<string, number>();
-  private destroyed = false;
-
+  readonly drafts = new DraftStore();
+  private attempts = new Map<string, Attempt>();
+  private queues = new Map<string, Promise<void>>();
+  private flights = new Map<string, Promise<void>>();
+  private timers = new Map<string, ReturnType<typeof setTimeout>>();
+  private retries = new Map<string, number>();
+  private paused = true;
   constructor() {
-    const unload = (event: BeforeUnloadEvent) => {
-      if (this.hasUnsavedChanges()) {
-        event.preventDefault();
-        event.returnValue = '';
+    this.vault.onOpen = () => this.initialize();
+    this.vault.onLock = () => this.flushAndClear();
+    this.vault.onFailedOpen = () => this.clear();
+    window.addEventListener('beforeunload', (e) => {
+      if ([...this.states().values()].some((s) => dirty(s) || this.attempts.has(s.date))) {
+        e.preventDefault();
+        e.returnValue = '';
       }
-    };
-    window.addEventListener('beforeunload', unload);
-    inject(DestroyRef).onDestroy(() => {
-      this.destroyed = true;
-      this.timers.forEach((timer) => clearTimeout(timer));
-      window.removeEventListener('beforeunload', unload);
     });
   }
-
-  private request(url: string, options: RequestInit = {}) {
-    return fetch(url, { ...options, signal: AbortSignal.timeout(8000) });
-  }
-
   state(date: string): EntryState {
-    return this.states()[date] ?? empty();
+    return this.states().get(date) ?? empty(date);
   }
-  hasUnsavedChanges(): boolean {
-    return (
-      this.pending.size > 0 ||
-      Object.values(this.states()).some((entry) => dirty(entry) || entry.deleteRequested)
-    );
+  private set(date: string, change: Partial<EntryState>) {
+    const states = new Map(this.states());
+    states.set(date, { ...this.state(date), ...change });
+    this.states.set(states);
   }
-  private patch(date: string, change: Partial<EntryState>) {
-    this.states.update((states) => ({ ...states, [date]: { ...this.state(date), ...change } }));
-  }
-  private mark(date: string, present: boolean) {
-    this.dates.update((dates) => {
-      const next = new Set(dates);
-      if (present) next.add(date);
-      else next.delete(date);
-      return next;
-    });
-  }
-  async loadDates() {
-    try {
-      const response = await this.request('/api/entries');
-      if (!response.ok) throw new Error();
-      const result: { dates: string[] } = await response.json();
-      const dates = new Set(result.dates);
-      // A list response must not undo newer local confirmations.
-      for (const [date, state] of Object.entries(this.states()))
-        if (state.loaded) {
-          if (state.revision > 0) dates.add(date);
-          else dates.delete(date);
-        }
-      this.dates.set(dates);
-      this.indexError.set('');
-    } catch {
-      this.indexError.set('Calendar markers unavailable.');
-    }
-  }
-  load(date: string): Promise<void> {
-    if (this.state(date).loaded) return Promise.resolve();
-    const existing = this.loads.get(date);
-    if (existing) return existing;
-    this.patch(date, { status: 'loading', error: '' });
-    const flight = this.read(date).finally(() => this.loads.delete(date));
-    this.loads.set(date, flight);
-    return flight;
-  }
-  private async read(date: string) {
-    try {
-      const response = await this.request(`/api/entries/${date}`);
-      if (response.status === 404) {
-        this.patch(date, { ...empty(), loaded: true, status: 'blank' });
-        this.mark(date, false);
-        return;
+  async initialize() {
+    const states = new Map<string, EntryState>();
+    let cursor = '',
+      count = 0;
+    do {
+      const page = await this.auth.request<{ records: OpaqueRecord[]; next_cursor: string }>(
+        '/api/entries' + (cursor ? `?cursor=${cursor}` : ''),
+      );
+      if (
+        !Array.isArray(page.records) ||
+        page.records.length > 100 ||
+        (page.next_cursor && (!uuid.test(page.next_cursor) || page.next_cursor <= cursor))
+      )
+        throw new Error('Invalid encrypted index.');
+      for (const record of page.records) {
+        if (++count > 100000) throw new Error('Vault is too large to open in this browser.');
+        const entry = await this.decrypt(record);
+        if (states.has(entry.date))
+          throw new Error('Duplicate diary date. Vault was not opened; data was preserved.');
+        states.set(entry.date, {
+          ...entry,
+          savedTitle: entry.title,
+          savedBody: entry.body,
+          savedTrashed: entry.trashed,
+          loaded: true,
+          status: entry.trashed ? 'blank' : 'saved',
+          error: '',
+          deleteRequested: false,
+        });
       }
-      if (!response.ok) throw new Error();
-      const entry: Entry = await response.json();
-      this.adopt(date, entry);
-    } catch {
-      this.patch(date, {
-        status: 'failed',
-        error: 'Could not load this date. Retry before writing.',
+      cursor = page.next_cursor;
+    } while (cursor);
+    const attempts = new Map<string, Attempt>();
+    for (const stored of await this.drafts.list(this.vault.id)) {
+      if (
+        !uuid.test(stored.record_id) ||
+        stored.format_version !== 1 ||
+        stored.key !== `${this.vault.id}/${stored.record_id}`
+      )
+        throw new Error('Invalid encrypted draft metadata.');
+      const draft = await decryptJSON<Draft>(
+        this.vault.key,
+        stored,
+        context('draft', this.vault.id, stored.record_id),
+      );
+      const state = draft.state;
+      validatePayload(state);
+      if (
+        state.id !== stored.record_id ||
+        !Number.isSafeInteger(state.revision) ||
+        state.revision < 0 ||
+        typeof state.savedTitle !== 'string' ||
+        typeof state.savedBody !== 'string' ||
+        typeof state.savedTrashed !== 'boolean'
+      )
+        throw new Error('Invalid encrypted draft.');
+      const existing = states.get(state.date);
+      if (existing && existing.id !== state.id)
+        throw new Error('Conflicting record for recovered draft. Data preserved.');
+      if (state.conflict) validatePayload(state.conflict);
+      if (draft.attempt) {
+        validatePayload(draft.attempt.payload);
+        if (
+          draft.attempt.payload.date !== state.date ||
+          !uuid.test(draft.attempt.write.operation_id) ||
+          draft.attempt.write.crypto_version !== 1 ||
+          !Number.isSafeInteger(draft.attempt.write.expected_revision) ||
+          draft.attempt.write.expected_revision < 0
+        )
+          throw new Error('Invalid pending save.');
+        // Verify persisted pending ciphertext before retrying it to the server.
+        const decoded = await decryptJSON<Payload>(
+          this.vault.key,
+          draft.attempt.write,
+          context('entry', this.vault.id, state.id),
+        );
+        if (JSON.stringify(decoded) !== JSON.stringify(draft.attempt.payload))
+          throw new Error('Pending save payload mismatch.');
+        attempts.set(state.date, draft.attempt);
+      }
+      states.set(state.date, {
+        ...state,
+        loaded: true,
+        status: state.status === 'conflict' ? 'conflict' : 'unsaved',
+        error: 'Recovered encrypted draft. Review it, then save or resolve the conflict.',
       });
     }
+    this.states.set(states);
+    this.attempts = attempts;
+    this.paused = false;
+    this.indexError.set('');
   }
-  private adopt(date: string, entry: Entry | null) {
-    this.pending.delete(date);
-    this.retries.delete(date);
-    this.patch(
-      date,
-      entry
-        ? {
-            ...empty(),
-            title: entry.title,
-            body: entry.body,
-            savedTitle: entry.title,
-            savedBody: entry.body,
-            revision: entry.revision,
-            loaded: true,
-            status: 'saved',
-          }
-        : { ...empty(), loaded: true, status: 'blank' },
-    );
-    this.mark(date, !!entry);
+  private async decrypt(record: OpaqueRecord): Promise<Entry> {
+    if (
+      record.vault_id !== this.vault.id ||
+      !uuid.test(record.id) ||
+      record.crypto_version !== 1 ||
+      !Number.isSafeInteger(record.revision) ||
+      record.revision < 1
+    )
+      throw new Error('Invalid encrypted record metadata.');
+    try {
+      return {
+        ...validatePayload(
+          await decryptJSON<Payload>(
+            this.vault.key,
+            record,
+            context('entry', this.vault.id, record.id),
+          ),
+        ),
+        id: record.id,
+        revision: record.revision,
+      };
+    } catch {
+      throw new Error(
+        'Encrypted entry failed integrity verification. Data preserved; editing is blocked.',
+      );
+    }
+  }
+  async load(date: string) {
+    if (!this.paused && !this.states().has(date)) this.set(date, { loaded: true });
+  }
+  async loadDates() {
+    /* Index is decrypted atomically at unlock; it is never sent as dates. */
   }
   edit(date: string, title: string, body: string) {
-    const previous = this.state(date);
-    if (!previous.loaded || previous.deleteRequested) return;
-    this.patch(date, { title, body, error: previous.status === 'conflict' ? previous.error : '' });
-    const entry = this.state(date);
-    if (previous.status === 'conflict') return;
-    const status =
-      dirty(entry) || this.pending.has(date) ? 'unsaved' : entry.revision ? 'saved' : 'blank';
-    this.patch(date, { status });
-    this.retries.delete(date);
-    this.cancelTimer(date);
-    if (status === 'unsaved') this.schedule(date, 1000);
+    if (this.paused || this.vault.busy()) return;
+    const current = this.state(date);
+    if (!current.loaded || current.deleteRequested) return;
+    this.set(date, {
+      title,
+      body,
+      trashed: false,
+      updated_at: new Date().toISOString(),
+      status: current.status === 'conflict' ? 'conflict' : 'unsaved',
+      error: current.status === 'conflict' ? current.error : '',
+    });
+    void this.stash(date).catch((e) => this.storageFailure(date, e));
+    if (current.status !== 'conflict') this.schedule(date, 1000);
   }
-  private cancelTimer(date: string) {
-    clearTimeout(this.timers.get(date));
-    this.timers.delete(date);
+  private storageFailure(date: string, e: unknown) {
+    this.set(date, {
+      status: 'failed',
+      error: e instanceof Error ? e.message : 'Encrypted draft storage failed. Keep this tab open.',
+    });
   }
   private schedule(date: string, delay: number) {
-    if (this.destroyed) return;
-    this.cancelTimer(date);
+    clearTimeout(this.timers.get(date));
     this.timers.set(
       date,
       setTimeout(() => {
@@ -195,179 +265,232 @@ export class DiaryService {
       }, delay),
     );
   }
+  private stash(date: string): Promise<void> {
+    const queued = (this.queues.get(date) ?? Promise.resolve())
+      .catch(() => {})
+      .then(async () => {
+        const state = this.states().get(date);
+        if (!state) return;
+        const attempt = this.attempts.get(date);
+        if (!dirty(state) && !attempt && state.status !== 'conflict') {
+          await this.drafts.remove(this.vault.id, state.id);
+          return;
+        }
+        const sealed = await encryptJSON(
+          this.vault.key,
+          { state, attempt } satisfies Draft,
+          context('draft', this.vault.id, state.id),
+        );
+        await this.drafts.put({
+          key: `${this.vault.id}/${state.id}`,
+          vault_id: this.vault.id,
+          record_id: state.id,
+          format_version: 1,
+          ...sealed,
+        });
+      });
+    this.queues.set(date, queued);
+    return queued;
+  }
   save(date: string): Promise<void> {
-    this.cancelTimer(date);
+    if (this.paused) return Promise.resolve();
     const existing = this.flights.get(date);
     if (existing) return existing;
-    const entry = this.state(date);
-    if (!entry.loaded || entry.status === 'conflict' || entry.deleteRequested || this.destroyed)
-      return Promise.resolve();
+    clearTimeout(this.timers.get(date));
+    this.timers.delete(date);
     const flight = this.persist(date).finally(() => this.flights.delete(date));
     this.flights.set(date, flight);
     return flight;
   }
   private async persist(date: string) {
-    while (!this.destroyed) {
-      const current = this.state(date);
-      let attempt = this.pending.get(date);
-      if (!attempt && !dirty(current)) {
-        this.patch(date, { status: current.revision ? 'saved' : 'blank', error: '' });
-        return;
-      }
-      if (!attempt) {
-        if (!hasText(current)) {
-          this.patch(date, {
-            status: current.revision ? 'unsaved' : 'blank',
-            error: current.revision
-              ? 'Clearing text does not delete an entry. Use Delete entry or restore the saved text.'
-              : '',
-          });
-          return;
-        }
+    try {
+      while (!this.paused) {
+        const state = this.state(date);
         if (
-          [...current.title].length > 200 ||
-          new TextEncoder().encode(current.body).length > 1048576
-        ) {
-          this.patch(date, {
-            status: 'failed',
-            error: 'Title limit is 200 characters; body limit is 1 MiB.',
-          });
+          !state.loaded ||
+          state.status === 'conflict' ||
+          (!dirty(state) && !this.attempts.has(date))
+        )
           return;
+        let attempt = this.attempts.get(date);
+        if (!attempt) {
+          const data = validatePayload(payload(state));
+          if (!data.trashed && !data.title.trim() && !data.body.trim()) {
+            this.set(date, {
+              status: state.revision ? 'unsaved' : 'blank',
+              error: state.revision ? 'Use Delete entry to remove saved text, or restore it.' : '',
+            });
+            await this.stash(date);
+            return;
+          }
+          attempt = {
+            payload: data,
+            write: {
+              crypto_version: 1,
+              expected_revision: state.revision,
+              operation_id: crypto.randomUUID(),
+              ...(await encryptJSON(
+                this.vault.key,
+                data,
+                context('entry', this.vault.id, state.id),
+              )),
+            },
+          };
+          this.attempts.set(date, attempt);
         }
-        attempt = {
-          title: current.title,
-          body: current.body,
-          expected_revision: current.revision,
-          operation_id: crypto.randomUUID(),
-        };
-        this.pending.set(date, attempt);
-      }
-      this.patch(date, { status: 'saving', error: '' });
-      let transient = true;
-      try {
-        const response = await this.request(`/api/entries/${date}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(attempt),
-        });
-        if (response.status === 409) {
-          const result: { current: Entry | null } = await response.json();
-          this.patch(date, {
-            status: 'conflict',
-            conflict: result.current,
-            error:
-              'This entry changed elsewhere. Your draft is preserved. Compare before choosing a version.',
-          });
-          return;
-        }
-        if (!response.ok) {
-          transient = response.status >= 500 || response.status === 429;
-          if (!transient) this.pending.delete(date);
-          throw new Error();
-        }
-        const saved: Entry = await response.json();
-        this.pending.delete(date);
+        this.set(date, { status: state.deleteRequested ? 'deleting' : 'saving', error: '' });
+        await this.stash(date); // Durable encrypted pending write precedes network submission.
+        const record = await this.auth.request<OpaqueRecord>(
+          `/api/entries/${state.id}`,
+          'PUT',
+          attempt.write,
+        );
+        const acknowledged = await this.decrypt(record);
+        if (
+          record.id !== state.id ||
+          record.revision !== attempt.write.expected_revision + 1 ||
+          JSON.stringify(payload({ ...state, ...acknowledged })) !== JSON.stringify(attempt.payload)
+        )
+          throw new Error('Save acknowledgement mismatch. Draft preserved.');
+        this.attempts.delete(date);
         this.retries.delete(date);
-        this.patch(date, {
-          revision: saved.revision,
-          savedTitle: saved.title,
-          savedBody: saved.body,
+        const latest = this.state(date);
+        this.set(date, {
+          revision: record.revision,
+          savedTitle: acknowledged.title,
+          savedBody: acknowledged.body,
+          savedTrashed: acknowledged.trashed,
+          deleteRequested: latest.trashed && !acknowledged.trashed,
         });
-        this.mark(date, true);
-        // The user's newer edits remain untouched. The next iteration saves them
-        // only after this revision is acknowledged, serializing writes per date.
-      } catch {
-        const retries = this.retries.get(date) ?? 0;
-        const retry = transient && retries < 3;
-        this.patch(date, {
+        if (!dirty(this.state(date)))
+          this.set(date, {
+            status: acknowledged.trashed ? 'blank' : 'saved',
+            error: '',
+            deleteRequested: false,
+          });
+        await this.stash(date); // Removes only a draft matching the acknowledged current text.
+      }
+    } catch (e) {
+      if (e instanceof APIError && e.status === 409) {
+        try {
+          const current = e.data?.current ? await this.decrypt(e.data.current) : null;
+          if (current && (current.id !== this.state(date).id || current.date !== date))
+            throw new Error('Conflict record identity mismatch. Draft preserved.');
+          this.attempts.delete(date);
+          this.set(date, {
+            status: 'conflict',
+            conflict: current,
+            error: 'Saved version changed. Compare it with your draft before choosing.',
+          });
+          await this.stash(date);
+        } catch (integrity) {
+          this.set(date, {
+            status: 'failed',
+            error: integrity instanceof Error ? integrity.message : 'Conflict verification failed.',
+          });
+        }
+      } else {
+        this.set(date, {
           status: 'failed',
-          error: retry
-            ? 'Save failed. Draft kept in this tab; retrying shortly.'
-            : 'Save failed. Draft kept in this tab. Use Retry save.',
+          error: e instanceof Error ? e.message : 'Save failed. Draft preserved.',
         });
-        if (retry) {
+        const retries = this.retries.get(date) ?? 0;
+        // Validation, storage and integrity errors require an explicit retry.
+        if (
+          !this.paused &&
+          this.auth.authenticated() &&
+          retries < 3 &&
+          ((e instanceof APIError && e.status >= 500) ||
+            e instanceof DOMException ||
+            e instanceof TypeError)
+        ) {
           this.retries.set(date, retries + 1);
           this.schedule(date, 1000 * 2 ** retries);
         }
-        return;
       }
     }
   }
   async retry(date: string) {
-    if (!this.state(date).loaded) return this.load(date);
     this.retries.delete(date);
-    if (this.state(date).deleteRequested) return this.deleteEntry(date);
-    return this.save(date);
+    await this.save(date);
   }
-  useSavedVersion(date: string) {
-    this.cancelTimer(date);
-    const entry = this.state(date);
-    if (entry.status !== 'conflict') return;
-    this.adopt(date, entry.conflict ?? null);
-  }
-  async overwriteWithDraft(date: string) {
-    const entry = this.state(date);
-    if (entry.status !== 'conflict') return;
-    this.pending.delete(date);
-    this.patch(date, {
-      revision: entry.conflict?.revision ?? 0,
-      savedTitle: entry.conflict?.title ?? '',
-      savedBody: entry.conflict?.body ?? '',
-      conflict: undefined,
-      deleteRequested: false,
+  async deleteEntry(date: string) {
+    if (this.paused) return;
+    // Resolve uncertain creation first so a late successful save cannot resurrect it.
+    if (this.attempts.has(date) || this.flights.has(date)) {
+      await this.save(date);
+      if (this.attempts.has(date) || this.state(date).status === 'conflict') return;
+    }
+    const state = this.state(date);
+    if (state.revision === 0) {
+      this.set(date, { title: '', body: '', status: 'blank', error: '', trashed: false });
+      await this.stash(date);
+      return;
+    }
+    this.set(date, {
+      trashed: true,
+      updated_at: new Date().toISOString(),
+      deleteRequested: true,
       status: 'unsaved',
       error: '',
     });
-    return this.save(date);
+    await this.stash(date);
+    await this.save(date);
   }
-  async deleteEntry(date: string) {
-    this.cancelTimer(date);
-    const flight = this.flights.get(date);
-    if (flight) await flight;
-    if (this.pending.has(date)) {
-      await this.save(date);
-      if (this.pending.has(date)) {
-        if (this.state(date).status !== 'conflict')
-          this.patch(date, {
-            status: 'failed',
-            error:
-              'A previous save is unconfirmed. Retry saving before deleting or discarding this draft.',
-          });
-        return;
-      }
-    }
-    const entry = this.state(date);
-    if (!entry.loaded || entry.status === 'conflict') return;
-    if (!entry.revision) {
-      this.adopt(date, null);
-      return;
-    }
-    this.patch(date, { status: 'deleting', deleteRequested: true, error: '' });
+  async useSavedVersion(date: string) {
+    const state = this.state(date);
+    if (state.status !== 'conflict') return;
+    const current = state.conflict ?? { ...empty(date), id: state.id, loaded: true };
+    this.attempts.delete(date);
+    this.set(date, {
+      ...current,
+      savedTitle: current.title,
+      savedBody: current.body,
+      savedTrashed: current.trashed,
+      conflict: undefined,
+      deleteRequested: false,
+      status: current.revision && !current.trashed ? 'saved' : 'blank',
+      error: '',
+    });
+    await this.stash(date);
+  }
+  async overwriteWithDraft(date: string) {
+    const state = this.state(date);
+    if (state.status !== 'conflict') return;
+    this.attempts.delete(date);
+    this.set(date, {
+      revision: state.conflict?.revision ?? 0,
+      savedTitle: state.conflict?.title ?? '',
+      savedBody: state.conflict?.body ?? '',
+      savedTrashed: state.conflict?.trashed ?? false,
+      conflict: undefined,
+      status: 'unsaved',
+      error: '',
+    });
+    await this.stash(date);
+    await this.save(date);
+  }
+  async flushAndClear() {
+    this.paused = true;
+    for (const timer of this.timers.values()) clearTimeout(timer);
+    this.timers.clear();
+    await Promise.all(this.flights.values());
     try {
-      const response = await this.request(`/api/entries/${date}`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ expected_revision: entry.revision }),
-      });
-      if (response.status === 409) {
-        const result: { current: Entry | null } = await response.json();
-        this.patch(date, {
-          status: 'conflict',
-          deleteRequested: false,
-          conflict: result.current,
-          error:
-            'Entry changed before deletion. Your text is preserved; compare the saved version first.',
-        });
-        return;
-      }
-      if (!response.ok && response.status !== 404) throw new Error();
-      this.adopt(date, null);
-    } catch {
-      this.patch(date, {
-        status: 'failed',
-        error:
-          'Deletion was not confirmed. Your text is kept in this tab. Retry to confirm deletion.',
-      });
+      await Promise.all([...this.states().keys()].map((date) => this.stash(date)));
+    } catch (e) {
+      this.paused = false;
+      throw e;
     }
+    this.clear();
+  }
+  clear() {
+    this.paused = true;
+    for (const timer of this.timers.values()) clearTimeout(timer);
+    this.timers.clear();
+    this.states.set(new Map());
+    this.attempts.clear();
+    this.queues.clear();
+    this.retries.clear();
+    this.indexError.set('');
   }
 }

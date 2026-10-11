@@ -21,9 +21,9 @@ const maxRevision = 9007199254740990
 
 var uuid = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
-// New serves the loopback-only synthetic development API. Authentication and
-// browser-side encryption belong to Phase 2, before any personal diary use.
-func New(checkDatabase func(context.Context) error, repository entries.Repository) *echo.Echo {
+// NewDevelopment is retained for Phase 1 compatibility tests only. The application
+// executable uses New and never mounts these plaintext routes.
+func NewDevelopment(checkDatabase func(context.Context) error, repository entries.Repository) *echo.Echo {
 	e := echo.New()
 	e.HideBanner = true
 	e.HidePort = true

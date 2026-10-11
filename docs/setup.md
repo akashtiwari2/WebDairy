@@ -1,47 +1,81 @@
 # Setup and troubleshooting
 
-Use the existing `/workspace/WebDairy` checkout. Cloud tasks are already isolated;
-no additional Git worktree is required.
+## Windows or Mac, using installed PostgreSQL
 
-- **`go version` is a different program:** source `scripts/env.sh`. The system
-  `/usr/bin/go` can be an unrelated executable; the checked toolchain is under
-  `/workspace/.tools/go/bin`.
-- **npm cache permission error:** source `scripts/env.sh`; the scripts direct npm
-  to `/workspace/.cache/npm`, not an unwritable user-home directory.
-- **Docker unavailable:** start/enable the environment's Docker daemon. No real
-  Google credentials or diary secrets are necessary for Phase 1.
-- **Port 5432, 8080 or 4200 occupied:** inspect the existing service before stopping
-  anything. Do not kill another task's process or remove another task's container.
-- **Database unavailable / 503:** run `bash scripts/db.sh` and check the development
-  container with `docker exec webdiary-postgres pg_isready -U diary_dev -d diary_dev`.
-  The health endpoint requires migration 4, not merely an open database port.
-- **Frontend can't contact Go:** start via `scripts/dev.sh` so `/api` uses the proxy.
-- **Read backend startup failures:** `.runtime/backend.log` contains Phase 1 logs.
-- **Dependency access:** registry.npmjs.org, proxy.golang.org, sum.golang.org,
-  dl.google.com, and the Docker registry endpoints are used. TLS and dependency
-  integrity verification remain enabled.
+Use your cloned WebDairy folder. Install Go 1.27.1 and Node 24.15+ (validated 24.19.0),
+and ensure PostgreSQL is accepting connections. Use the actual PostgreSQL role,
+password and port configured on your machine; `diary_user` is just an example.
+Create a separate empty database for WebDairy, with a role allowed to migrate it.
 
-To use an external PostgreSQL database, supply `DATABASE_URL` securely and run
-`go run ./cmd/diary -migrate` from `backend/` after sourcing `scripts/env.sh`.
-The cloud `db.sh` still manages its separate synthetic development container.
+In the backend terminal, from `WebDairy/backend`, set the connection **before**
+running migrations/server. Replace placeholders with your own values locally.
+URL-encode password characters such as `@`, `:`, `#` and `%`.
 
-## Persistence and migrations
+Windows PowerShell:
 
-Startup now applies numbered migrations 1–4 once. Migration 2 adds the synthetic
-plaintext development table; migration 3 prevents stale updates after deletion and
-recreation. Migration 4 retains committed operation identities so delayed creation
-retries cannot resurrect deleted entries. Existing encrypted skeleton tables remain
-separate. Repeating `db.sh`
-does not reset entries. `-migrations` accepts a migration directory (the old
-single-file `-migration` flag has been replaced).
+```powershell
+$env:DATABASE_URL = 'postgres://YOUR_ROLE:YOUR_PASSWORD@127.0.0.1:5432/diary_db?sslmode=disable'
+go mod download
+go run ./cmd/diary -migrate
+go run ./cmd/diary
+```
 
-If a date cannot load, use **Retry loading** rather than editing an unknown baseline.
-A failed save is not Saved; keep the tab open and use Retry. Failed drafts are only
-in memory until Phase 2 encrypted draft recovery is implemented. Saved entries survive
-ordinary service/container restarts, but the Docker volume is not assumed to survive
-cloud snapshot restoration. Publish the updated source/configuration for future
-Codex tasks, and never rely on that publication as a diary backup.
+Mac terminal:
 
-Run `bash scripts/test-integration.sh` to verify real PostgreSQL CRUD, idempotent
-retries, concurrent update conflicts, delete/recreate safety, and failed-migration
-rollback. It provisions a disposable test database rather than modifying diary data.
+```bash
+export DATABASE_URL='postgres://YOUR_ROLE:YOUR_PASSWORD@127.0.0.1:5432/diary_db?sslmode=disable'
+go mod download
+go run ./cmd/diary -migrate
+go run ./cmd/diary
+```
+
+Leave this terminal running. In a **second terminal**, from `WebDairy/frontend`:
+
+```bash
+npm ci
+npm start
+```
+
+Open the local app on port 4200. First create the login password and a different
+vault passphrase, then save/verify the offline recovery key. On later visits log
+in and unlock. `npm start` includes the proxy configuration; plain `ng serve`
+without that configuration cannot forward `/api` to Go.
+
+The variable is held by that terminal and inherited by the Go process, not saved
+in Go source. A new terminal needs it again. `.env` is not automatically loaded by
+this backend. Never replace `os.Getenv("DATABASE_URL")` with the connection string:
+Getenv expects the **variable's name**. Do not commit credentials.
+
+## Cloud development
+
+Use the existing `/workspace/WebDairy` checkout; no extra worktree is needed.
+Source `scripts/env.sh` for the verified Go toolchain and writable dependency caches.
+Run `scripts/install.sh` if dependencies are missing, then `scripts/dev.sh`.
+The scripts manage a labelled, loopback-bound PostgreSQL container for synthetic
+data only. Port conflicts are reported without stopping unrelated services.
+
+- Backend unavailable: keep the Go terminal running; inspect its current error.
+- Database not-ready: verify `pg_isready` and actual credentials with `psql`, then
+  run `go run ./cmd/diary -migrate` from backend. Health requires migration 5.
+- Password authentication failed: the PostgreSQL role/password in DATABASE_URL
+  differs from your actual database account. This is separate from WebDairy login.
+- Login expired: unlock after logging in again; encrypted pending drafts stay local.
+- Wrong vault key/corrupt record: editing is blocked; no empty replacement is created.
+- Encrypted draft storage failure: keep the tab open, free browser storage and retry.
+  Lock will report failure while it cannot safely persist the current draft.
+- Another editing tab: lock/close that tab first. Use the same browser and hostname;
+  localhost and 127.0.0.1 have separate cookies, storage and Web Locks.
+- Forgotten login: run `go run ./cmd/diary -reset-login` in an interactive backend
+  terminal. It revokes sessions without altering the vault.
+- Forgotten vault passphrase: after login, use the offline recovery key to set a
+  new passphrase. Login reset cannot decrypt the diary.
+
+Migrations 1–5 apply transactionally once under an advisory lock; startup never
+resets data. Version 5 adds login/session/revision support. Existing Phase 1
+plaintext development rows are preserved separately, without automatic import.
+
+`bash scripts/test-integration.sh` uses a disposable synthetic database, ignoring
+any caller-supplied personal DATABASE_URL. Ordinary unit tests skip database tests
+unless TEST_DATABASE_URL is provided. Cloud publication retains setup/source,
+not a guaranteed database backup. Docker data should not be assumed to survive a
+new cloud snapshot/task.

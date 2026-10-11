@@ -1,0 +1,217 @@
+@if (v.recoveryPurpose()) {
+  <section class="panel" aria-label="Save recovery key">
+    <h2>Save your recovery key offline</h2>
+    <p>
+      Store this key outside this browser. Anyone with this key and a vault copy can decrypt your
+      diary. We cannot recover a lost passphrase without it.
+    </p>
+    <code id="recovery-key">{{ v.recoverySecret() }}</code>
+    @if (v.recoveryPurpose() === 'rotate') {
+      <p>
+        Old recovery keys may still unlock old backup copies. This change does not revoke those
+        copies.
+      </p>
+    }
+    <form (ngSubmit)="verify()" autocomplete="off">
+      <label
+        >Type the complete key from your offline copy<input
+          id="recovery-confirm"
+          name="recovery"
+          type="password"
+          [(ngModel)]="recoveryInput"
+          autocomplete="off"
+          required /></label
+      ><label
+        ><input name="offline" type="checkbox" [(ngModel)]="savedOffline" /> I saved the key outside
+        this browser.</label
+      ><button [disabled]="v.busy() || !savedOffline">Verify and finish</button
+      ><button type="button" (click)="cancel()" [disabled]="v.busy()">Cancel</button>
+    </form>
+  </section>
+} @else if (v.state() === 'checking' || v.state() === 'opening') {
+  <section class="panel">
+    <h2>{{ v.state() === 'opening' ? 'Opening encrypted vault…' : 'Checking local database…' }}</h2>
+    <button (click)="retry()" [disabled]="v.busy()">Retry</button>
+  </section>
+} @else if (v.state() === 'setup') {
+  <section class="panel" aria-label="Set up vault">
+    <h2>Create your local vault</h2>
+    <p>
+      Use two different passwords. Login allows backend access. The vault passphrase decrypts your
+      diary in this browser.
+    </p>
+    <form (ngSubmit)="setup()">
+      <label
+        >Login password (at least 12 characters)<input
+          id="setup-login"
+          name="login"
+          type="password"
+          [(ngModel)]="loginPassword"
+          autocomplete="new-password"
+          minlength="12"
+          required /></label
+      ><label
+        >Vault passphrase (at least 12 characters)<input
+          id="setup-pass"
+          name="pass"
+          type="password"
+          [(ngModel)]="passphrase"
+          autocomplete="new-password"
+          minlength="12"
+          required /></label
+      ><label
+        >Confirm vault passphrase<input
+          id="setup-confirm"
+          name="confirm"
+          type="password"
+          [(ngModel)]="confirmation"
+          autocomplete="new-password"
+          required /></label
+      ><button [disabled]="v.busy()">Create recovery key</button>
+    </form>
+  </section>
+} @else if (v.state() === 'login') {
+  <section class="panel" aria-label="Login">
+    <h2>Log in to WebDairy</h2>
+    <form (ngSubmit)="login()">
+      <label
+        >Login password<input
+          id="login-password"
+          name="login"
+          type="password"
+          [(ngModel)]="loginPassword"
+          autocomplete="current-password"
+          required /></label
+      ><button [disabled]="v.busy()">Log in</button>
+    </form>
+    <p class="hint">
+      Forgot login? The local administrator can run
+      <code>go run ./cmd/diary -reset-login</code> from backend. This does not reset the vault
+      passphrase.
+    </p>
+  </section>
+} @else if (v.state() === 'locked') {
+  <section class="panel" aria-label="Unlock vault">
+    <h2>{{ recovering() ? 'Recover your vault' : 'Vault locked' }}</h2>
+    @if (recovering()) {
+      <form (ngSubmit)="recover()" autocomplete="off">
+        <label
+          >Offline recovery key<input
+            id="recover-secret"
+            name="secret"
+            type="password"
+            [(ngModel)]="recoveryInput"
+            autocomplete="off"
+            required /></label
+        ><label
+          >New vault passphrase<input
+            id="recover-pass"
+            name="pass"
+            type="password"
+            [(ngModel)]="passphrase"
+            autocomplete="new-password"
+            minlength="12"
+            required /></label
+        ><label
+          >Confirm new vault passphrase<input
+            id="recover-confirm"
+            name="confirm"
+            type="password"
+            [(ngModel)]="confirmation"
+            autocomplete="new-password"
+            required /></label
+        ><button [disabled]="v.busy()">Recover and set passphrase</button
+        ><button type="button" (click)="recovering.set(false)" [disabled]="v.busy()">Back</button>
+      </form>
+    } @else {
+      <form (ngSubmit)="unlock()">
+        <label
+          >Vault passphrase<input
+            id="unlock-pass"
+            name="pass"
+            type="password"
+            [(ngModel)]="passphrase"
+            autocomplete="off"
+            required /></label
+        ><button [disabled]="v.busy()">Unlock diary</button
+        ><button type="button" (click)="recovering.set(true)" [disabled]="v.busy()">
+          Use recovery key
+        </button>
+      </form>
+    }
+    <p class="hint">
+      The vault passphrase stays in this browser. Wrong keys never create a replacement vault.
+    </p>
+    <button (click)="logout()" [disabled]="v.busy()">Log out</button>
+  </section>
+} @else if (settings()) {
+  <section class="panel" aria-label="Vault settings">
+    <h2>Vault settings</h2>
+    <label
+      >Lock after inactivity (1–60 minutes)<input
+        id="idle-minutes"
+        type="number"
+        min="1"
+        max="60"
+        [ngModel]="v.idleMinutes()"
+        (ngModelChange)="v.setIdle($event)"
+    /></label>
+    <form (ngSubmit)="changePass()">
+      <h3>Change vault passphrase</h3>
+      <label
+        >Current vault passphrase<input
+          name="current"
+          type="password"
+          [(ngModel)]="current"
+          autocomplete="off"
+          required /></label
+      ><label
+        >New vault passphrase<input
+          name="pass"
+          type="password"
+          [(ngModel)]="passphrase"
+          autocomplete="new-password"
+          minlength="12"
+          required /></label
+      ><label
+        >Confirm new vault passphrase<input
+          name="confirm"
+          type="password"
+          [(ngModel)]="confirmation"
+          autocomplete="new-password"
+          required /></label
+      ><button [disabled]="v.busy()">Change passphrase</button>
+    </form>
+    <form (ngSubmit)="rotate()">
+      <h3>Replace recovery key</h3>
+      <label
+        >Current vault passphrase<input
+          name="current"
+          type="password"
+          [(ngModel)]="current"
+          autocomplete="off"
+          required /></label
+      ><button [disabled]="v.busy()">Create replacement recovery key</button>
+    </form>
+    <form (ngSubmit)="changeLogin()">
+      <h3>Change login password</h3>
+      <p>This locks the vault and logs out every session.</p>
+      <label
+        >Current login password<input
+          name="current"
+          type="password"
+          [(ngModel)]="current"
+          autocomplete="current-password"
+          required /></label
+      ><label
+        >New login password<input
+          name="login"
+          type="password"
+          [(ngModel)]="loginPassword"
+          autocomplete="new-password"
+          minlength="12"
+          required /></label
+      ><button [disabled]="v.busy()">Change login password</button>
+    </form>
+  </section>
+}

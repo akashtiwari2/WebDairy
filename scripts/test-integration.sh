@@ -8,4 +8,4 @@ docker exec webdiary-postgres createdb -U diary_dev "$test_database"
 cleanup() { docker exec webdiary-postgres dropdb --force -U diary_dev "$test_database" >/dev/null; }
 trap cleanup EXIT
 cd "$WEBDIARY_ROOT/backend"
-TEST_DATABASE_URL="postgres://diary_dev@127.0.0.1:5432/$test_database?sslmode=disable" go test -race -count=1 -v ./internal/entries -run '^TestPostgresWorkflow$'
+TEST_DATABASE_URL="postgres://diary_dev@127.0.0.1:5432/$test_database?sslmode=disable" go test -race -count=1 -v ./internal/entries ./internal/server -run '^Test(Postgres|Private)Workflow$'

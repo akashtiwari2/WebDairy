@@ -1,53 +1,53 @@
-# Phase 1 synthetic development API
+# Phase 2 local API
 
-Go binds to 127.0.0.1:8080; Angular proxies `/api` from port 4200. Requests use
-same-origin browser fetch. No permissive CORS is enabled. Only loopback Host names
-on these ports are accepted. Writes require matching `Origin: http://<Host>` and
-`Content-Type: application/json`. Origin checks do not replace account authentication,
-which belongs to Phase 2. All responses use `Cache-Control: no-store`.
+Go listens on `127.0.0.1:8080`. Angular's same-origin `/api` proxy forwards from
+4200 while preserving Host. Allowed hosts are localhost/127.0.0.1 on those two
+ports. Writes require matching Origin, JSON content type and `X-CSRF-Token`.
+Cross-site requests are rejected. No CORS allowance or request-body logging.
 
-| Method | Route | Result |
-| --- | --- | --- |
-| GET | `/api/health` | Database migration 4 readiness; 503 if unavailable |
-| GET | `/api/entries` | `{ "dates": ["2030-10-20", ...] }`, active dates only |
-| GET | `/api/entries/:date` | Date, title, body, revision, UTC created_at/updated_at; 404 if absent |
-| PUT | `/api/entries/:date` | Create/update atomically; return the committed entry |
-| DELETE | `/api/entries/:date` | Confirmed revision deletion, 204; stale revision 409; absent 404 |
+All responses use `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`.
+Uninitialized bootstrap/setup is intended only for the trusted local owner.
 
-## Save request
+| Route | Purpose |
+| --- | --- |
+| GET `/api/health` | Database migration 5 readiness; stage `phase2` |
+| GET `/api/auth/session` | `{initialized,authenticated,csrf_token}`; bootstrap cookie |
+| POST `/api/auth/setup` | `{login_password,envelope}`; creates one owner/vault atomically |
+| POST `/api/auth/login` | `{password}`; new session and rotated CSRF token |
+| POST `/api/auth/logout` | Revokes session and cookies |
+| POST `/api/auth/password` | `{current_password,new_password}`; revokes all sessions |
+| GET `/api/vault` | Authenticated `{envelope,revision}` |
+| PUT `/api/vault` | `{envelope,expected_revision,operation_id}`; atomic envelope revision |
+| GET `/api/entries?cursor=UUID` | Authenticated `{records,next_cursor}`; 100 per page |
+| PUT `/api/entries/UUID` | Authenticated encrypted write; committed encrypted record |
 
-```json
-{
-  "title": "Synthetic future plan",
-  "body": "Sample text only",
-  "expected_revision": 0,
-  "operation_id": "11111111-1111-4111-8111-111111111111"
-}
-```
+Entry reads and writes contain no diary dates or text. No plaintext date route,
+physical-delete route or public listing is exposed by the production constructor.
+The legacy development server constructor remains solely for compatibility tests.
 
-Revision 0 creates only if the date has no active entry. Updates require the last
-confirmed positive revision. One SQL operation checks and changes the revision.
-The browser uses a fresh random UUID per captured write and reuses it only when
-retrying that same request after an unconfirmed response. Retry returns the same
-committed revision if operation ID, original expected revision and content match.
-It never increments twice. Committed operation IDs and request hashes are retained after deletion, so a delayed retry cannot resurrect a deleted entry. If another write has superseded it, retry conflicts.
+A write contains `crypto_version:1`, base64 `nonce` (12 bytes), base64 `ciphertext`
+(with GCM tag), `expected_revision` (0 creates) and UUID `operation_id`.
+A response adds immutable `id`, `vault_id` and positive `revision`.
 
-A stale write/delete returns `409` with `{ "error": "revision_conflict", "current":
-<entry-or-null> }`. `current: null` means the entry was deleted. The client preserves
-its draft and requires an explicit resolution. Recreating a deleted date continues
-its revision sequence; a stale editor cannot overwrite the replacement. Tombstones
-retain only the date/revision metadata and clear title/body. Phase 1 has no trash.
+`409` returns `{error:'revision_conflict',current:<opaque record|null>}` for entries.
+The client authenticates/decrypts the comparison before offering a choice.
+Reusing an operation ID with different bytes conflicts. Replaying identical
+committed bytes acknowledges only while that record's resulting revision is still
+current; a later edit makes the old retry conflict. Envelope updates use the same
+rule. Database transactions retain hashed operation identities.
 
-DELETE JSON is `{ "expected_revision": 3 }`. The client treats a missing entry as
-an already completed deletion when retrying after a lost response.
+The envelope has format version 1, vault UUID, passphrase KDF/AES-GCM wrapper and
+independent HKDF recovery wrapper. Each wraps the same random 32-byte vault key;
+Go validates the bounded format and stores it, never receiving the raw key or vault
+passphrase. KDF parameters outside the supported policy are rejected.
 
-Civil dates must be real YYYY-MM-DD dates, years 0001–9999, including past/future
-and leap dates. The server rejects unknown JSON fields, trailing data, empty or
-whitespace-only entries, titles over 200 Unicode characters, bodies over 1 MiB
-UTF-8, unsafe/negative revisions, and invalid operation UUIDs. JSON cap is 2 MiB.
-Errors: 400 invalid request, 403 untrusted local origin/host, 404 absent entry,
-409 stale revision, 413 oversized request, 503 database unavailable. No database
-credentials, SQL errors or submitted bodies are included in error responses/logs.
+Login: 12–1024 UTF-8 bytes, Argon2id 64 MiB/3 iterations/1 lane, random 16-byte salt.
+A global persisted one-minute window allows five password attempts, including valid
+ones; subsequent attempts return `429` with Retry-After 60. Session tokens and CSRF
+secrets are random 32-byte values; database storage holds hashes. Host-only HttpOnly
+SameSite=Strict cookies use `/api`, idle expiry 30 minutes and absolute expiry 24
+hours. Secure is enabled under TLS; this loopback development server uses HTTP.
 
-This API deliberately operates on plaintext **synthetic** `development_entries`,
-separately from future encrypted vault storage. It is not a private diary API.
+`400`: invalid format; `401`: expired/missing authentication; `403`: Host/Origin/CSRF;
+`404`: absent resource/route; `413`: request >2 MiB; `429`: login throttle;
+`503`: database unavailable. Database error details and credentials are not exposed.

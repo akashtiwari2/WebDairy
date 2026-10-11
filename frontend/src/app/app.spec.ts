@@ -1,368 +1,278 @@
 import { TestBed } from '@angular/core/testing';
-import { App, todayInKolkata } from './app';
-import { DiaryService, Entry, validCivilDate } from './diary.service';
-
-type Attempt = { title: string; body: string; expected_revision: number; operation_id: string };
-const response = (status: number, body: unknown = null) =>
-  ({ status, ok: status >= 200 && status < 300, json: async () => body }) as Response;
-const date = '2030-10-20';
-const stored = (value: string, body = 'Synthetic body', revision = 1): Entry => ({
-  date: value,
-  title: 'Sample title',
-  body,
-  revision,
-  created_at: '2026-10-06T00:00:00Z',
-  updated_at: '2026-10-06T00:00:00Z',
-});
-
-describe('Persistent diary and autosave', () => {
-  let database: Record<string, Entry>;
-  let operations: Record<string, string>;
-  let handle: (url: string, init?: RequestInit) => Promise<Response>;
-  let api: ReturnType<typeof vi.fn<typeof handle>>;
-
+import { signal } from '@angular/core';
+import { webcrypto } from 'node:crypto';
+import { todayInKolkata } from './app';
+import { DiaryService, validCivilDate } from './diary.service';
+import { AuthService } from './auth.service';
+import { VaultService } from './vault.service';
+import { StoredDraft } from './drafts';
+import { aesKey, encryptJSON, context, OpaqueRecord, OpaqueWrite, Payload } from './vault-crypto';
+const date = '2030-10-20',
+  vaultID = '12345678-1234-4234-8234-123456789012';
+const response = (status: number, data: unknown) =>
+  ({ ok: status >= 200 && status < 300, status, json: async () => data }) as Response;
+describe('Encrypted autosave and durable drafts', () => {
+  let service: DiaryService,
+    database: Map<string, OpaqueRecord>,
+    operations: Map<string, string>,
+    local: Map<string, StoredDraft>,
+    key: CryptoKey;
+  let handle: (path: string, init?: RequestInit) => Promise<Response>,
+    api: ReturnType<typeof vi.fn<typeof handle>>;
   beforeEach(async () => {
     vi.useFakeTimers();
-    database = {};
-    operations = {};
-    handle = async (url, init) => {
-      if (url === '/api/health') return response(200, { database: 'ready' });
-      if (url === '/api/entries') return response(200, { dates: Object.keys(database) });
-      const date = url.split('/').at(-1)!;
-      const entry = database[date];
-      if (init?.method === 'PUT') {
-        const attempt: Attempt = JSON.parse(init.body as string);
-        if (
-          entry &&
-          operations[date] === attempt.operation_id &&
-          entry.revision === attempt.expected_revision + 1 &&
-          entry.body === attempt.body &&
-          entry.title === attempt.title
-        )
-          return response(200, { ...entry });
-        if ((entry?.revision ?? 0) !== attempt.expected_revision)
-          return response(409, { current: entry ? { ...entry } : null });
-        const next: Entry = {
-          ...stored(date),
-          title: attempt.title,
-          body: attempt.body,
-          revision: attempt.expected_revision + 1,
-        };
-        database[date] = next;
-        operations[date] = attempt.operation_id;
-        return response(200, { ...next });
-      }
-      if (init?.method === 'DELETE') {
-        if (!entry) return response(404);
-        if (entry.revision !== JSON.parse(init.body as string).expected_revision)
-          return response(409, { current: { ...entry } });
-        delete database[date];
-        return response(204);
-      }
-      return entry ? response(200, { ...entry }) : response(404);
+    vi.stubGlobal('crypto', webcrypto);
+    key = await aesKey(new Uint8Array(32));
+    database = new Map();
+    operations = new Map();
+    local = new Map();
+    handle = async (path, init) => {
+      if (path === '/api/entries')
+        return response(200, { records: [...database.values()], next_cursor: '' });
+      const id = path.split('/').at(-1)!,
+        write: OpaqueWrite = JSON.parse(init!.body as string),
+        old = database.get(id),
+        encoded = JSON.stringify(write);
+      if (
+        operations.get(write.operation_id) === encoded &&
+        old?.revision === write.expected_revision + 1
+      )
+        return response(200, old);
+      if ((old?.revision ?? 0) !== write.expected_revision)
+        return response(409, { current: old ?? null });
+      const record: OpaqueRecord = {
+        id,
+        vault_id: vaultID,
+        crypto_version: 1,
+        nonce: write.nonce,
+        ciphertext: write.ciphertext,
+        revision: write.expected_revision + 1,
+      };
+      database.set(id, record);
+      operations.set(write.operation_id, encoded);
+      return response(200, record);
     };
-    api = vi.fn(handle);
+    api = vi.fn((path, init) => handle(path, init));
     vi.stubGlobal('fetch', api);
-    await TestBed.configureTestingModule({ imports: [App] }).compileComponents();
+    TestBed.configureTestingModule({
+      providers: [
+        DiaryService,
+        AuthService,
+        { provide: VaultService, useValue: { key, id: vaultID, busy: signal(false) } },
+      ],
+    });
+    TestBed.inject(AuthService).authenticated.set(true);
+    service = TestBed.inject(DiaryService);
+    vi.spyOn(service.drafts, 'list').mockImplementation(async () => [...local.values()]);
+    vi.spyOn(service.drafts, 'put').mockImplementation(async (draft) => {
+      local.set(draft.key, draft);
+      return draft.key;
+    });
+    vi.spyOn(service.drafts, 'remove').mockImplementation(async (vault, id) => {
+      local.delete(`${vault}/${id}`);
+    });
+    await service.initialize();
+    await service.load(date);
   });
-  afterEach(() => {
+  afterEach(async () => {
+    service.clear();
     TestBed.resetTestingModule();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
     vi.useRealTimers();
   });
-  const writes = (mock: typeof api) => mock.mock.calls.filter(([, init]) => init?.method === 'PUT');
-  async function ready(value = date) {
-    const service = TestBed.inject(DiaryService);
-    await service.load(value);
-    return service;
+  const writes = () => api.mock.calls.filter(([, init]) => init?.method === 'PUT');
+  async function record(id: string, body: string, revision: number): Promise<OpaqueRecord> {
+    const payload: Payload = {
+      date,
+      title: 'Server title',
+      body,
+      trashed: false,
+      created_at: '2026-10-11T00:00:00.000Z',
+      updated_at: '2026-10-11T00:00:00.000Z',
+    };
+    return {
+      id,
+      vault_id: vaultID,
+      crypto_version: 1,
+      revision,
+      ...(await encryptJSON(key, payload, context('entry', vaultID, id))),
+    };
   }
-
-  it('autosaves after one idle second and marks Saved only after acknowledgement', async () => {
-    const service = await ready();
-    service.edit(date, 'Sample future plan', 'Synthetic writing');
-    expect(service.state(date).status).toBe('unsaved');
+  it('autosaves after one second and sends only UUIDs and ciphertext', async () => {
+    service.edit(date, 'SYNTHETIC TITLE', 'SYNTHETIC BODY');
     await vi.advanceTimersByTimeAsync(999);
-    expect(writes(api)).toHaveLength(0);
+    expect(writes()).toHaveLength(0);
     await vi.advanceTimersByTimeAsync(1);
-    expect(database[date].body).toBe('Synthetic writing');
+    await service.save(date);
     expect(service.state(date).status).toBe('saved');
-    expect(service.hasUnsavedChanges()).toBe(false);
-    expect(service.dates().has(date)).toBe(true);
+    expect(database.size).toBe(1);
+    expect(local.size).toBe(0);
+    expect(JSON.stringify(writes())).not.toContain(date);
+    expect(JSON.stringify(writes())).not.toContain('SYNTHETIC');
   });
-  it('serializes rapid edits without an older response overwriting new text', async () => {
-    const service = await ready();
-    let release!: (response: Response) => void;
-    const gate = new Promise<Response>((resolve) => (release = resolve));
+  it('does not create untouched empty entries', async () => {
+    await service.save(date);
+    expect(writes()).toHaveLength(0);
+  });
+  it('persists encrypted draft before sending a write and clears it after acknowledgement', async () => {
+    handle = async (path, init) => {
+      expect(local.size).toBe(1);
+      expect(JSON.stringify([...local.values()])).not.toContain('SYNTHETIC');
+      const w = JSON.parse(init!.body as string);
+      const r = { id: path.split('/').at(-1)!, vault_id: vaultID, revision: 1, ...w };
+      database.set(r.id, r);
+      return response(200, r);
+    };
+    service.edit(date, 'SYNTHETIC TITLE', 'SYNTHETIC BODY');
+    await service.save(date);
+    expect(local.size).toBe(0);
+  });
+  it('blocks network writes when encrypted local storage fails', async () => {
+    vi.mocked(service.drafts.put).mockRejectedValue(new Error('storage full'));
+    service.edit(date, 'Title', 'Body');
+    await service.save(date);
+    expect(writes()).toHaveLength(0);
+    expect(service.state(date).body).toBe('Body');
+    expect(service.state(date).error).toContain('storage full');
+  });
+  it('preserves latest text typed while an earlier save is in flight', async () => {
+    let release!: () => void, started!: () => void;
+    const start = new Promise<void>((r) => (started = r)),
+      gate = new Promise<void>((r) => (release = r)),
+      original = handle;
     let first = true;
-    // Resolve a committed first response manually while newer typing is in memory.
-    let firstResponse!: Response;
-    api.mockImplementation(async (url, init) => {
-      if (init?.method === 'PUT' && first) {
+    handle = async (path, init) => {
+      if (first) {
         first = false;
-        firstResponse = await handle(url, init);
-        return gate;
+        started();
+        await gate;
       }
-      return handle(url, init);
-    });
-    service.edit(date, 'Sample', 'First');
-    const saving = service.save(date);
-    await Promise.resolve();
-    service.edit(date, 'Sample', 'Newest');
-    expect(writes(api)).toHaveLength(1);
-    expect(service.state(date).body).toBe('Newest');
-    release(firstResponse);
-    await saving;
-    expect(writes(api)).toHaveLength(2);
-    expect(database[date].body).toBe('Newest');
-    expect(database[date].revision).toBe(2);
-    expect(service.state(date).body).toBe('Newest');
-    expect(service.state(date).status).toBe('saved');
+      return original(path, init);
+    };
+    service.edit(date, 'Title', 'First');
+    const flight = service.save(date);
+    await start;
+    service.edit(date, 'Title', 'Second');
+    release();
+    await flight;
+    expect(writes()).toHaveLength(2);
+    expect(service.state(date).savedBody).toBe('Second');
+    expect(service.state(date).revision).toBe(2);
+    expect(local.size).toBe(0);
   });
-  it('keeps failed text and recovers with Retry rather than reporting Saved', async () => {
-    const service = await ready();
-    api.mockImplementation((url, init) =>
-      init?.method === 'PUT' ? Promise.resolve(response(503)) : handle(url, init),
-    );
-    service.edit(date, 'Sample', 'Kept draft');
-    await service.save(date);
-    expect(service.state(date).status).toBe('failed');
-    expect(service.state(date).body).toBe('Kept draft');
-    expect(service.hasUnsavedChanges()).toBe(true);
-    expect(database[date]).toBeUndefined();
-    api.mockImplementation(handle);
-    await service.retry(date);
-    expect(service.state(date).status).toBe('saved');
-    expect(database[date].body).toBe('Kept draft');
-  });
-  it('retries the same operation after a lost response without creating a second revision', async () => {
-    const service = await ready();
-    let lost = true;
-    api.mockImplementation(async (url, init) => {
-      const result = await handle(url, init);
-      if (init?.method === 'PUT' && lost) {
-        lost = false;
-        throw new TypeError('Synthetic network loss');
+  it('retries identical ciphertext and operation after a lost successful response', async () => {
+    const original = handle;
+    let first = true;
+    handle = async (path, init) => {
+      const result = await original(path, init);
+      if (first) {
+        first = false;
+        throw new TypeError('lost response');
       }
       return result;
-    });
-    service.edit(date, 'Sample', 'Committed but response lost');
+    };
+    service.edit(date, 'Title', 'Body');
     await service.save(date);
     expect(service.state(date).status).toBe('failed');
-    expect(database[date].revision).toBe(1);
+    expect(local.size).toBe(1);
     await service.retry(date);
-    const attempts = writes(api).map(([, init]) => JSON.parse(init!.body as string));
-    expect(attempts[1].operation_id).toBe(attempts[0].operation_id);
-    expect(database[date].revision).toBe(1);
-    expect(service.state(date).status).toBe('saved');
+    expect(writes()[0][1]!.body).toBe(writes()[1][1]!.body);
+    expect(service.state(date).revision).toBe(1);
+    expect(local.size).toBe(0);
   });
-  it('times out a stalled request without losing the draft', async () => {
-    // Node implements AbortSignal.timeout with native timers outside fake timers.
-    // Supply the equivalent browser signal so this test can advance time deterministically.
-    vi.spyOn(AbortSignal, 'timeout').mockImplementation((milliseconds) => {
-      const controller = new AbortController();
-      setTimeout(() => controller.abort(), milliseconds);
-      return controller.signal;
-    });
-    const service = await ready();
-    api.mockImplementation((url, options) =>
-      options?.method === 'PUT'
-        ? new Promise<Response>((_, reject) =>
-            options.signal!.addEventListener('abort', () =>
-              reject(new DOMException('Synthetic timeout', 'AbortError')),
-            ),
-          )
-        : handle(url, options),
-    );
-    service.edit(date, 'Sample', 'Stalled network draft');
-    const saving = service.save(date);
-    await vi.advanceTimersByTimeAsync(8000);
-    await saving;
-    expect(service.state(date).status).toBe('failed');
-    expect(service.state(date).body).toBe('Stalled network draft');
-  });
-
-  it('confirms an unknown creation before discarding so a lost response cannot leave a hidden entry', async () => {
-    const service = await ready();
-    let lost = true;
-    api.mockImplementation(async (url, init) => {
-      const result = await handle(url, init);
-      if (init?.method === 'PUT' && lost) {
-        lost = false;
-        throw new TypeError('Synthetic response loss');
-      }
-      return result;
-    });
-    service.edit(date, 'Sample', 'Unknown committed draft');
-    await service.save(date);
-    expect(service.state(date).revision).toBe(0);
-    expect(database[date].revision).toBe(1);
-    await service.deleteEntry(date);
-    expect(database[date]).toBeUndefined();
-    expect(service.state(date).status).toBe('blank');
-    expect(service.hasUnsavedChanges()).toBe(false);
-  });
-
-  it('bounds automatic failure retries while retaining the draft', async () => {
-    const service = await ready();
-    api.mockImplementation((url, init) =>
-      init?.method === 'PUT' ? Promise.resolve(response(503)) : handle(url, init),
-    );
-    service.edit(date, 'Sample', 'Still here');
-    await service.save(date);
-    await vi.advanceTimersByTimeAsync(30000);
-    expect(writes(api)).toHaveLength(4);
-    expect(service.state(date).body).toBe('Still here');
-    expect(service.state(date).status).toBe('failed');
-  });
-  it('preserves a conflicting draft and requires an explicit version choice', async () => {
-    database[date] = stored(date, 'Original');
-    const service = await ready();
-    database[date] = stored(date, 'Another tab', 2);
-    service.edit(date, 'My title', 'My draft');
+  it('keeps conflict draft and decrypts the compared version', async () => {
+    const id = service.state(date).id;
+    database.set(id, await record(id, 'Other writer', 1));
+    service.edit(date, 'Mine', 'My draft');
     await service.save(date);
     expect(service.state(date).status).toBe('conflict');
     expect(service.state(date).body).toBe('My draft');
-    expect(service.state(date).conflict?.body).toBe('Another tab');
-    await vi.advanceTimersByTimeAsync(5000);
-    expect(writes(api)).toHaveLength(1);
+    expect(service.state(date).conflict?.body).toBe('Other writer');
+    expect(local.size).toBe(1);
     await service.overwriteWithDraft(date);
-    expect(database[date].revision).toBe(3);
-    expect(database[date].body).toBe('My draft');
+    expect(service.state(date).revision).toBe(2);
+    expect(service.state(date).savedBody).toBe('My draft');
   });
-  it('can discard a conflicting draft in favour of the saved version', async () => {
-    database[date] = stored(date, 'Original');
-    const service = await ready();
-    database[date] = stored(date, 'Other version', 2);
-    service.edit(date, 'Sample', 'My draft');
+  it('requires an explicit choice to use the saved conflict version', async () => {
+    const id = service.state(date).id;
+    database.set(id, await record(id, 'Other writer', 1));
+    service.edit(date, 'Mine', 'My draft');
     await service.save(date);
-    service.useSavedVersion(date);
-    expect(service.state(date).body).toBe('Other version');
-    expect(service.state(date).status).toBe('saved');
-    expect(service.hasUnsavedChanges()).toBe(false);
+    await service.useSavedVersion(date);
+    expect(service.state(date).body).toBe('Other writer');
+    expect(local.size).toBe(0);
+    expect(writes()).toHaveLength(1);
   });
-  it('does not silently recreate an entry deleted by another editor', async () => {
-    database[date] = stored(date);
-    const service = await ready();
-    delete database[date];
-    service.edit(date, 'Sample', 'My draft');
+  it('restores an encrypted pending write after memory was cleared, including lost acknowledgements', async () => {
+    const original = handle;
+    let first = true;
+    handle = async (path, init) => {
+      const result = await original(path, init);
+      if (first) {
+        first = false;
+        throw new TypeError('lost response');
+      }
+      return result;
+    };
+    service.edit(date, 'Title', 'Recovered text');
     await service.save(date);
-    expect(service.state(date).status).toBe('conflict');
-    expect(service.state(date).conflict).toBeNull();
-    expect(database[date]).toBeUndefined();
-    await service.overwriteWithDraft(date);
-    expect(database[date].revision).toBe(1);
+    const pending = writes()[0][1]!.body;
+    await service.flushAndClear();
+    expect(service.states().size).toBe(0);
+    await service.initialize();
+    expect(service.state(date).body).toBe('Recovered text');
+    await service.save(date);
+    expect(writes()[1][1]!.body).toBe(pending);
+    expect(service.state(date).revision).toBe(1);
   });
-  it('empty visits create nothing, title-only entries save, and clearing requires deletion', async () => {
-    const service = await ready();
+  it('flushes latest encrypted draft on lock even when the server is unavailable', async () => {
+    handle = async () => response(503, {});
+    service.edit(date, 'Title', 'Offline draft');
     await service.save(date);
-    expect(writes(api)).toHaveLength(0);
-    service.edit(date, 'Title only', '');
+    await service.flushAndClear();
+    expect(service.states().size).toBe(0);
+    expect(local.size).toBe(1);
+    handle = async () => response(200, { records: [], next_cursor: '' });
+    await service.initialize();
+    expect(service.state(date).body).toBe('Offline draft');
+  });
+  it('refuses a successful lock if encrypted draft storage fails', async () => {
+    vi.mocked(service.drafts.put).mockRejectedValue(new Error('storage full'));
+    service.edit(date, 'Title', 'Keep me');
+    await expect(service.flushAndClear()).rejects.toThrow('storage full');
+    expect(service.state(date).body).toBe('Keep me');
+  });
+  it('blocks opening tampered records without exposing a partial index', async () => {
+    const id = service.state(date).id,
+      r = await record(id, 'Body', 1);
+    r.ciphertext = 'AAAA';
+    database.set(id, r);
+    service.clear();
+    await expect(service.initialize()).rejects.toThrow('integrity');
+    expect(service.states().size).toBe(0);
+  });
+  it('moves deletion state inside ciphertext and reuses the record on recreation', async () => {
+    service.edit(date, 'Title', 'Body');
     await service.save(date);
-    expect(database[date].title).toBe('Title only');
-    service.edit(date, '', '');
-    await vi.advanceTimersByTimeAsync(1000);
-    expect(service.state(date).status).toBe('unsaved');
-    expect(database[date].title).toBe('Title only');
-    expect(service.state(date).error).toContain('Use Delete entry');
+    const id = service.state(date).id;
     await service.deleteEntry(date);
-    expect(database[date]).toBeUndefined();
+    expect(service.state(date).trashed).toBe(true);
     expect(service.dates().has(date)).toBe(false);
-  });
-  it('failed deletion is kept pending and can be retried safely', async () => {
-    database[date] = stored(date);
-    const service = await ready();
-    api.mockImplementation((url, init) =>
-      init?.method === 'DELETE' ? Promise.resolve(response(503)) : handle(url, init),
-    );
-    await service.deleteEntry(date);
-    expect(service.state(date).status).toBe('failed');
-    expect(service.state(date).body).toBe('Synthetic body');
-    expect(service.state(date).deleteRequested).toBe(true);
-    api.mockImplementation(handle);
-    await service.retry(date);
-    expect(service.state(date).status).toBe('blank');
-    expect(service.hasUnsavedChanges()).toBe(false);
-  });
-  it('blocks editing when the date could not be loaded and supports load retry', async () => {
-    api.mockResolvedValue(response(503));
-    const service = await ready();
-    service.edit(date, 'Cannot write', 'Unknown base');
-    expect(service.state(date).body).toBe('');
-    expect(service.state(date).loaded).toBe(false);
-    api.mockImplementation(handle);
-    await service.retry(date);
-    expect(service.state(date).loaded).toBe(true);
-  });
-  it('saves a future draft on navigation and loads confirmed text in a fresh client', async () => {
-    const fixture = TestBed.createComponent(App);
-    const app = fixture.componentInstance;
-    await app.select(date);
-    app.edit('Future sample', 'Birthday plans');
-    await app.select('2024-02-29');
-    await app.diary.save(date);
-    await app.select(date);
-    expect(app.entry().body).toBe('Birthday plans');
-    TestBed.resetTestingModule();
-    await TestBed.configureTestingModule({ imports: [App] }).compileComponents();
-    const reopened = TestBed.createComponent(App).componentInstance;
-    await reopened.select(date);
-    expect(reopened.entry().body).toBe('Birthday plans');
-    expect(reopened.selected()).toBe(date);
-    expect(reopened.entry().status).toBe('saved');
-  });
-  it('preserves unsaved text on navigation even when both save and target load fail', async () => {
-    const app = TestBed.createComponent(App).componentInstance;
-    await app.select(date);
-    api.mockResolvedValue(response(503));
-    app.edit('Sample', 'Do not lose this');
-    await app.select('2040-01-01');
-    await app.diary.save(date);
-    expect(app.entry().loaded).toBe(false);
-    await app.select(date);
-    expect(app.entry().body).toBe('Do not lose this');
-    expect(app.entry().status).toBe('failed');
-  });
-  it('warns before unloading a pending draft but not a confirmed save', async () => {
-    const service = await ready();
-    service.edit(date, 'Sample', 'Pending');
-    const pending = new Event('beforeunload', { cancelable: true });
-    window.dispatchEvent(pending);
-    expect(pending.defaultPrevented).toBe(true);
+    service.edit(date, 'New title', 'New body');
     await service.save(date);
-    const saved = new Event('beforeunload', { cancelable: true });
-    window.dispatchEvent(saved);
-    expect(saved.defaultPrevented).toBe(false);
+    expect(service.state(date).id).toBe(id);
+    expect(service.state(date).revision).toBe(3);
+    expect(database.size).toBe(1);
   });
-  it('keeps the selected civil date and text across Kolkata midnight', async () => {
-    vi.setSystemTime(new Date('2026-10-06T18:29:50Z'));
-    const app = TestBed.createComponent(App).componentInstance;
-    await app.diary.load(app.selected());
-    app.edit('Sample', 'Midnight draft');
-    const selected = app.selected();
-    await vi.advanceTimersByTimeAsync(30000);
-    expect(app.today()).toBe('2026-10-07');
-    expect(app.selected()).toBe(selected);
-    expect(app.entry().body).toBe('Midnight draft');
+});
+describe('Civil dates', () => {
+  it('supports leap days and rejects normalization and year zero', () => {
+    expect(validCivilDate('2024-02-29')).toBe(true);
+    for (const date of ['2023-02-29', '0000-01-01', '2026-13-01', '2026-1-01'])
+      expect(validCivilDate(date)).toBe(false);
   });
-  it('validates civil dates, leap day and minimum/maximum supported years', () => {
-    expect(todayInKolkata(new Date('2026-10-06T20:00:00Z'))).toBe('2026-10-07');
-    for (const value of ['2024-02-29', '0001-01-01', '9999-12-31'])
-      expect(validCivilDate(value)).toBe(true);
-    for (const value of ['2023-02-29', '2024-04-31', '0000-01-01', '2024-1-01'])
-      expect(validCivilDate(value)).toBe(false);
-  });
-  it('renders sample-only notice and text without interpreting it as HTML', async () => {
-    database[date] = stored(date, '<img src=x onerror=alert(1)>');
-    const fixture = TestBed.createComponent(App);
-    await fixture.componentInstance.select(date);
-    fixture.detectChanges();
-    await Promise.resolve();
-    fixture.detectChanges();
-    const root = fixture.nativeElement as HTMLElement;
-    expect(root.textContent).toContain('without encryption');
-    expect(root.querySelector('textarea')!.value).toContain('<img');
-    expect(root.querySelector('img')).toBeNull();
-    expect(root.textContent).toContain('Saved');
+  it('uses Asia/Kolkata for today independent of machine timezone', () => {
+    expect(todayInKolkata(new Date('2026-10-11T19:00:00Z'))).toBe('2026-10-12');
   });
 });

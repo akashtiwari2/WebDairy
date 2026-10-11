@@ -1,35 +1,36 @@
 # WebDairy
 
-A personal diary being built with Angular, Go Echo and PostgreSQL, following the
-owner-supplied `Diary_App_Detailed_Plan.pdf`.
+A local personal diary built with Angular, Go Echo and PostgreSQL, following the
+owner-supplied `Diary_App_Detailed_Plan.pdf`. The PDF describes planned features;
+this repository's roadmap records what is actually implemented.
 
-## Current milestone: Phase 1 persistent sample diary
+## Current milestone: Phase 2 private vault
 
-- Calendar, Today, date picker and plain-text title/editor for past, present and future dates.
-- PostgreSQL create/read/update/delete with one active entry per civil date.
-- One-second autosave, Save now, and Unsaved / Saving / Saved / Save failed states.
-- Serialized saves per date, retained in-tab drafts on failure, bounded retries and unload warning.
-- Revision conflicts preserve the draft and show the saved version for an explicit choice.
-- Saved-day markers, title-only entries, leap-day support and midnight-safe navigation.
-- Explicit deletion. Clearing text never silently deletes an entry. Deleted sample content is
-  removed; date/revision tombstones prevent stale editors overwriting a recreated entry.
+- Calendar/editor for past, present and future dates; Today uses Asia/Kolkata.
+- Separate login password and vault passphrase; Argon2id password hashing,
+  HttpOnly sessions, expiry, login throttling, Host/Origin and CSRF checks.
+- Browser AES-256-GCM encryption, random vault key, pinned Argon2id wrapping,
+  independent offline recovery key and verified first-time recovery setup.
+- Passphrase change, recovery-key replacement and login-password reset.
+- Serialized one-second autosave, optimistic revisions, idempotent lost-response
+  retries and explicit comparison before resolving a conflict.
+- Encrypted IndexedDB pending drafts, recovery on unlock, manual/five-minute
+  inactivity lock, and one editing tab per browser origin using Web Locks.
+- Encrypted deletion state. Trash browsing, search and backup/restore are Phase 3.
 
-**Sample text only. Phase 1 stores plaintext in `development_entries`.** The
-separate `vaults`/`entries` schema is reserved for encrypted Phase 2 storage. Login,
-browser encryption, encrypted pending-draft recovery, trash, export/restore, Google
-Drive and Windows packaging are not implemented. This is not ready for private diary use.
+**Use sample data until encrypted export/restore is implemented and rehearsed.**
+This is development software, not a security-audited release. The development
+Docker database uses trust authentication and is unsuitable for personal data.
 
-Saved means PostgreSQL confirmed a committed write. Confirmed entries survive browser
-refresh and application/database restart. Unconfirmed text stays only in this tab:
-if you close/refresh before confirmation, it can be lost. The unload warning is best-effort and browsers may suppress it. Nothing writes plaintext
-pending drafts or keys to localStorage/IndexedDB. Cloud snapshot restoration of the
-Docker data volume is not promised.
+Existing Phase 1 rows are preserved in `development_entries`; they are not
+converted into encrypted entries, erased, or served by the default API. Old
+plaintext copies stay plaintext until deliberately handled separately.
 
-## Cloud development quick start
+## Cloud development
 
 Validated: Node **24.19.0**, npm **11.9.0**, Angular CLI **22.2.1**, Go **1.27.1**,
-PostgreSQL **18** (pinned Docker image digest). Docker and Linux amd64 are required
-by the cloud scripts. Use the existing isolated checkout; no Git worktree is needed.
+PostgreSQL **18** with a pinned Docker image. Cloud scripts require Docker and
+Linux amd64; use the existing checkout without an additional worktree.
 
 ```bash
 cd /workspace/WebDairy
@@ -37,67 +38,67 @@ bash scripts/install.sh
 bash scripts/dev.sh
 ```
 
-`install.sh` uses checksum-verified Go, `npm ci`, Go module verification, and builds
-both components. `dev.sh` starts/reuses the labelled database, applies all pending
-migrations, waits for readiness and runs Angular with its same-origin `/api` proxy.
-Ctrl+C stops the frontend/backend started by the script; PostgreSQL remains running.
-Local diagnostic ports: Angular 4200, Go 8080. Routine setup does not commit or push.
+Startup checks ports, starts the labelled synthetic database, applies numbered
+migrations 1–5, then starts Go on loopback 8080 and Angular on loopback 4200 with
+the same-origin `/api` proxy. Ctrl+C stops its app children; PostgreSQL stays up.
+
+On the first visit, create two different passwords, copy the recovery key offline,
+and verify that copy. Later, log in and then unlock the vault. Secrets are entered
+locally; do not send them in chat or commit them to Git.
 
 ```bash
-curl --fail http://127.0.0.1:4200/api/health
-bash scripts/check.sh             # Go unit checks/vet + Angular tests + build
-bash scripts/test-integration.sh  # Real PostgreSQL tests in a disposable database
+bash scripts/check.sh             # Go tests/vet, Angular tests, production build
+bash scripts/test-integration.sh  # Real PostgreSQL and race detection, disposable DB
 ```
 
-The integration runner creates and drops only its uniquely named synthetic test database.
-Without `TEST_DATABASE_URL`, the PostgreSQL integration test is explicitly skipped by
-the unit command; run the integration script for that coverage.
+See [local Windows/Mac setup](docs/setup.md), [API](docs/api.md),
+[security design](docs/security.md), [browser checks](docs/browser-tests.md) and
+[roadmap](docs/roadmap.md).
 
-## Writing and failure handling
+## Saving, locking and recovery
 
-Select any date and enter a title/body. After one idle second, autosave submits a
-snapshot; newer edits are saved after its acknowledgement. Navigation requests an
-immediate save while retaining each date's draft in memory. A saved-day dot means a
-confirmed stored entry, not merely an unsaved draft.
+Saved means PostgreSQL acknowledged a committed encrypted write. Before submission,
+the browser stores the pending attempt and latest text in an encrypted draft.
+Lost-response retries reuse the same operation ID and ciphertext. Conflicts retain
+both your draft and the decrypted saved version for an explicit choice.
 
-If loading fails, editing is disabled until **Retry loading** obtains the baseline.
-If saving fails, text remains in the tab, with three bounded automatic retries and an eight-second request timeout and
-**Retry save**. The same operation ID makes retrying a lost response idempotent.
-An entry changed/deleted in another tab produces a conflict: compare the saved
-version, then confirm either using it or saving your draft over the compared revision.
-Another concurrent change still conflicts. Retry never silently chooses a version.
+Lock encrypts outstanding drafts before clearing the editor, date index and keys.
+It can complete while the server is unavailable. If draft encryption/storage fails,
+lock reports failure and keeps the tab/key available for retry. After a refresh or
+restart, log in/unlock and review recovered drafts before saving them.
 
-Title limit: 200 Unicode characters; body limit: 1 MiB UTF-8; JSON request cap: 2 MiB.
-Empty visits create no rows. Title-only entries are valid. To clear an existing entry,
-use confirmed **Delete entry**, or **Restore saved text** to undo the local clearing.
-Deletion is not trash in Phase 1. Database operational timestamps use UTC, and civil
-diary dates remain unchanged when reopened. Today uses Asia/Kolkata.
+Wait for Saved before closing. Browser termination, storage eviction, disk failure
+or loss of the most recent keystroke before encryption can still lose data.
+Browser drafts are not backups. The Docker volume and cloud publication are not
+backups either; no cross-machine recovery is promised yet.
 
-## Development configuration
+Clearing all text does not silently delete a saved entry. Use Delete entry to
+mark its content as encrypted trash. Revisiting an untouched empty date creates
+no row. Limits: 200 Unicode title characters, 1 MiB UTF-8 body, 2 MiB JSON request.
+Diary dates, title/body, content timestamps and deletion state stay inside the
+ciphertext; the database still sees record IDs, revisions, sizes and write timing.
 
-The local database container binds **127.0.0.1** and uses trust authentication solely
-for synthetic development data. Any local process can access it. The API requires
-loopback Host and matching Origin on JSON writes; it has no account authentication.
-Before personal use, Phase 2 must add encryption, authentication and least-privilege roles.
+## Login reset
 
-`DATABASE_URL` optionally overrides the backend connection; never commit credentials.
-The default local connection has `sslmode=disable` because this container is local.
-The named volume `webdiary-postgres-data` persists container restarts in this Docker
-environment. Do not assume cloud publication backs it up; do not use it for real data.
+From `backend`, with `DATABASE_URL` set, run:
 
-Migrations 1–4 are transactionally applied once under a PostgreSQL advisory lock.
-Scripts never reset the database. Generated outputs, `.env` files, logs and diary
-exports are ignored; caches and tools stay outside the checkout.
+```bash
+go run ./cmd/diary -reset-login
+```
 
-## Layout and further work
+Enter/confirm a new password at the hidden terminal prompts. All sessions are
+revoked. The encrypted vault and recovery key are unchanged. This command cannot
+recover a forgotten vault passphrase; use the offline recovery key for that.
+
+## Layout
 
 ```text
-frontend/      Angular calendar/editor, per-date autosave service and tests
-backend/       Echo API, PostgreSQL repository, migration runner and tests
-migrations/    Numbered SQL; encrypted skeleton and synthetic development tables
-scripts/       Install, database, startup, unit/build and isolated integration checks
-docs/          API contract, implementation roadmap and troubleshooting
+frontend/      Angular UI, browser crypto, authentication and encrypted drafts
+backend/       Echo protected API, opaque storage, migration runner and tests
+migrations/    Numbered SQL, including preserved synthetic Phase 1 tables
+scripts/       Install/start and isolated verification tools
+docs/          Setup, API, security design and remaining milestones
 ```
 
-See [Phase 1 API](docs/api.md), [roadmap](docs/roadmap.md) and
-[setup troubleshooting](docs/setup.md).
+`DATABASE_URL` may override the local connection; never commit credentials.
+Generated binaries, `.env` files, logs and diary exports are ignored.

@@ -1,4 +1,6 @@
-import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, computed, effect, inject, signal } from '@angular/core';
+import { AuthPanel } from './auth-panel';
+import { VaultService } from './vault.service';
 import { FormsModule } from '@angular/forms';
 import { DiaryService, SaveStatus, validCivilDate } from './diary.service';
 
@@ -15,16 +17,21 @@ export function todayInKolkata(now = new Date()): string {
 
 @Component({
   selector: 'app-root',
-  imports: [FormsModule],
+  imports: [FormsModule, AuthPanel],
   templateUrl: './app.html',
   styleUrl: './app.css',
 })
 export class App {
   readonly diary = inject(DiaryService);
+  readonly vault = inject(VaultService);
+  readonly settings = signal(false);
   readonly today = signal(todayInKolkata());
   readonly selected = signal(this.today());
   readonly month = signal(this.today().slice(0, 7));
-  readonly entry = computed(() => this.diary.state(this.selected()));
+  readonly entry = computed(() => {
+    const state = this.diary.state(this.selected());
+    return state.trashed ? { ...state, title: '', body: '' } : state;
+  });
   readonly backend = signal('Checking database…');
   readonly dateLabel = computed(() =>
     new Intl.DateTimeFormat('en-IN', { dateStyle: 'full', timeZone: 'UTC' }).format(
@@ -69,15 +76,32 @@ export class App {
         }) satisfies Record<SaveStatus, string>
       )[this.entry().status],
   );
-  readonly editable = computed(() => this.entry().loaded && !this.entry().deleteRequested);
+  readonly editable = computed(
+    () => this.entry().loaded && !this.entry().deleteRequested && !this.vault.busy(),
+  );
 
   constructor() {
     void this.checkHealth();
-    void this.diary.loadDates();
-    void this.diary.load(this.selected());
+    void this.vault.perform(() => this.vault.start());
+    effect(() => {
+      if (this.vault.state() === 'unlocked') void this.diary.load(this.selected());
+      else this.settings.set(false);
+      if (
+        this.vault.state() === 'unlocked' &&
+        !this.vault.auth.authenticated() &&
+        !this.vault.busy()
+      )
+        void this.vault.perform(() => this.vault.lock());
+    });
     // Midnight changes the Today marker, never the selected date or editor text.
     const marker = setInterval(() => this.today.set(todayInKolkata()), 30000);
     inject(DestroyRef).onDestroy(() => clearInterval(marker));
+  }
+  lock() {
+    void this.vault.perform(() => this.vault.lock());
+  }
+  logout() {
+    void this.vault.perform(() => this.vault.logout());
   }
   async checkHealth() {
     try {
@@ -125,7 +149,7 @@ export class App {
     const date = this.selected();
     if (
       !window.confirm(
-        'Delete this sample entry and discard its unsaved text? This permanently deletes the development entry; trash is not implemented yet.',
+        'Move this entry to encrypted trash and discard unsaved text? The trash browser will be added in Phase 3.',
       )
     )
       return;
@@ -134,7 +158,7 @@ export class App {
   useSavedVersion() {
     const date = this.selected();
     if (window.confirm('Discard your draft and use the currently saved version?'))
-      this.diary.useSavedVersion(date);
+      void this.diary.useSavedVersion(date);
   }
   async overwriteWithDraft() {
     const date = this.selected();

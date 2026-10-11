@@ -40,7 +40,7 @@ func request(e *echo.Echo, method, path, body string) *httptest.ResponseRecorder
 	return result
 }
 func healthy(repository entries.Repository) *echo.Echo {
-	return New(func(context.Context) error { return nil }, repository)
+	return NewDevelopment(func(context.Context) error { return nil }, repository)
 }
 
 const validWrite = `{"title":"Sample","body":"Synthetic text","expected_revision":0,"operation_id":"11111111-1111-4111-8111-111111111111"}`
@@ -56,7 +56,7 @@ func TestReadiness(t *testing.T) {
 		{"database unavailable", errors.New("secret connection details"), 503, `"database":"not-ready"`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			res := request(New(func(context.Context) error { return tc.failure }, &stub{}), "GET", "/api/health", "")
+			res := request(NewDevelopment(func(context.Context) error { return tc.failure }, &stub{}), "GET", "/api/health", "")
 			if res.Code != tc.code || !strings.Contains(res.Body.String(), tc.body) {
 				t.Fatalf("unexpected readiness: %d %s", res.Code, res.Body.String())
 			}
