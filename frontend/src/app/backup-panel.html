@@ -1,0 +1,145 @@
+<section class="tool-panel" aria-label="Encrypted backups">
+  <h2>Encrypted backup and restore</h2>
+  <p>
+    Keep a downloaded .diary file outside this browser. It needs the passphrase or offline recovery
+    key from when it was created. Login passwords and sessions are excluded.
+  </p>
+  @if (v.state() === 'unlocked') {
+    <div class="tool-row">
+      <button id="export-backup" (click)="export()" [disabled]="v.busy()">
+        Save and export backup</button
+      ><button (click)="export(true)" [disabled]="v.busy()">Export unsaved editor text</button>
+    </div>
+    <p class="hint">
+      Editor-text export works without the backend. It includes your draft version of conflicts.
+    </p>
+  }
+  @if (b.message()) {
+    <p role="status">{{ b.message() }}</p>
+  }
+  @if (b.preview(); as preview) {
+    <div class="comparison">
+      <h3>Verified restore preview</h3>
+      <dl>
+        <dt>Vault</dt>
+        <dd>{{ preview.vault_id }}</dd>
+        <dt>Snapshot</dt>
+        <dd>{{ preview.snapshot_at }}</dd>
+        <dt>Entries</dt>
+        <dd>{{ preview.active }} active, {{ preview.trashed }} in trash</dd>
+      </dl>
+      @if (preview.source === 'browser-draft') {
+        <p role="note">
+          This file includes unconfirmed editor text and the exporting user's version of conflicts.
+        </p>
+      }
+      @if (b.auth.initialized()) {
+        <p>
+          Restore replaces the current diary. Your current login password stays the same. Save a
+          current-diary backup first; a copy is also kept with the three latest replacement backups.
+        </p>
+        <button (click)="safety()" [disabled]="v.busy() || v.state() !== 'unlocked'">
+          Download current diary backup
+        </button>
+        @if (v.state() !== 'unlocked') {
+          <p>Unlock the current diary above, then verify the import file again.</p>
+        }
+        <label
+          ><input type="checkbox" [(ngModel)]="replaceConfirmed" [disabled]="!b.safetyReady()" /> I
+          saved the current backup file and want to replace this diary.</label
+        >
+      } @else {
+        <p>
+          This database is empty. Choose a new local login password; diary encryption still uses the
+          backup's vault key.
+        </p>
+        <label
+          >New local login password<input
+            id="restore-login"
+            type="password"
+            [(ngModel)]="login"
+            autocomplete="new-password"
+            minlength="12" /></label
+        ><label
+          >Confirm login password<input
+            id="restore-login-confirm"
+            type="password"
+            [(ngModel)]="confirmation"
+            autocomplete="new-password" /></label
+        ><label
+          ><input type="checkbox" [(ngModel)]="replaceConfirmed" /> Restore this verified snapshot
+          into the empty database.</label
+        >
+      }
+      <button
+        id="commit-restore"
+        (click)="commit()"
+        [disabled]="v.busy() || !replaceConfirmed || (b.auth.initialized() && !b.safetyReady())"
+      >
+        Confirm restore</button
+      ><button (click)="b.clearPreview()" [disabled]="v.busy()">Cancel preview</button>
+    </div>
+  } @else {
+    <form (ngSubmit)="verify()" autocomplete="off">
+      <label
+        >Encrypted backup file (maximum 48 MiB)<input
+          id="import-file"
+          type="file"
+          accept=".diary,application/json"
+          (change)="choose($event)"
+      /></label>
+      <p>{{ fileName() }}</p>
+      <label
+        >Unlock backup with<select name="mode" [(ngModel)]="mode">
+          <option value="passphrase">Vault passphrase</option>
+          <option value="recovery">Offline recovery key</option>
+        </select></label
+      ><label
+        >{{ mode === 'passphrase' ? 'Backup vault passphrase' : 'Backup recovery key'
+        }}<input
+          id="import-secret"
+          name="secret"
+          type="password"
+          [(ngModel)]="secret"
+          autocomplete="off"
+          required /></label
+      ><button [disabled]="v.busy() || !file">Verify and preview</button>
+    </form>
+  }
+  <h3>Browser backup copies</h3>
+  <p class="hint">
+    These copies can be lost if browser storage is cleared or evicted. Download them to another
+    location.
+  </p>
+  <div class="tool-list">
+    @for (backup of b.local(); track backup.id) {
+      <article>
+        <span>{{ backup.saved_at }} · {{ backup.source }}</span
+        ><button (click)="b.downloadLocal(backup.id)" [disabled]="v.busy()">Download</button
+        ><button (click)="remove(backup.id)" [disabled]="v.busy()">Remove browser copy</button>
+      </article>
+    } @empty {
+      <p>No browser copies yet.</p>
+    }
+  </div>
+  @if (b.historyError()) {
+    <p role="status">{{ b.historyError() }}</p>
+  }
+  @if (b.history().length) {
+    <h3>Before-replacement backups</h3>
+    <div class="tool-list">
+      @for (backup of b.history(); track backup.id) {
+        <article>
+          <span>{{ backup.saved_at }}</span
+          ><button (click)="history(backup.id)" [disabled]="v.busy()">
+            Download previous diary
+          </button>
+        </article>
+      }
+    </div>
+  }
+  <p class="hint">
+    Google Drive and scheduled uploads will be added in Phase 4. Local export has no automatic
+    background schedule.
+  </p>
+</section>

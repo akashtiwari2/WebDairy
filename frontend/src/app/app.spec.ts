@@ -58,7 +58,15 @@ describe('Encrypted autosave and durable drafts', () => {
       providers: [
         DiaryService,
         AuthService,
-        { provide: VaultService, useValue: { key, id: vaultID, busy: signal(false) } },
+        {
+          provide: VaultService,
+          useValue: {
+            key,
+            id: vaultID,
+            vault: { vault_epoch: '12345678-1234-4234-8234-123456789013' },
+            busy: signal(false),
+          },
+        },
       ],
     });
     TestBed.inject(AuthService).authenticated.set(true);
@@ -252,18 +260,71 @@ describe('Encrypted autosave and durable drafts', () => {
     await expect(service.initialize()).rejects.toThrow('integrity');
     expect(service.states().size).toBe(0);
   });
-  it('moves deletion state inside ciphertext and reuses the record on recreation', async () => {
+  it('keeps encrypted trash content when a new entry is written for that date', async () => {
     service.edit(date, 'Title', 'Body');
     await service.save(date);
     const id = service.state(date).id;
     await service.deleteEntry(date);
-    expect(service.state(date).trashed).toBe(true);
+    expect(service.trash().get(id)?.trashed).toBe(true);
     expect(service.dates().has(date)).toBe(false);
+    await service.load(date);
     service.edit(date, 'New title', 'New body');
     await service.save(date);
-    expect(service.state(date).id).toBe(id);
-    expect(service.state(date).revision).toBe(3);
-    expect(database.size).toBe(1);
+    expect(service.state(date).id).not.toBe(id);
+    expect(service.state(date).revision).toBe(1);
+    expect(database.size).toBe(2);
+    expect(service.trash().get(id)?.body).toBe('Body');
+  });
+  it('preserves an occupied date and restores trash to an explicitly chosen alternative', async () => {
+    service.edit(date, 'Original', 'Keep trash text');
+    await service.save(date);
+    const id = service.state(date).id;
+    await service.deleteEntry(date);
+    await service.load(date);
+    service.edit(date, 'New entry', 'Keep active text');
+    await service.save(date);
+    await expect(service.restoreTrash(id, date)).rejects.toThrow('already has');
+    expect(service.state(date).body).toBe('Keep active text');
+    await service.restoreTrash(id, '2030-10-21');
+    expect(service.state('2030-10-21').id).toBe(id);
+    expect(service.state('2030-10-21').savedBody).toBe('Keep trash text');
+    expect(service.trash().size).toBe(0);
+    expect(database.size).toBe(2);
+  });
+  it('retains a failed purge and retries the identical permanent-delete operation', async () => {
+    service.edit(date, 'Trash', 'Retain until acknowledged');
+    await service.save(date);
+    const id = service.state(date).id;
+    await service.deleteEntry(date);
+    const requests: string[] = [];
+    let fail = true;
+    handle = async (_path, init) => {
+      requests.push(init!.body as string);
+      if (fail) {
+        fail = false;
+        throw new TypeError('lost response');
+      }
+      return response(204, null);
+    };
+    await expect(service.purgeTrash(id)).rejects.toThrow('lost response');
+    expect(service.trash().get(id)?.body).toBe('Retain until acknowledged');
+    await service.purgeTrash(id);
+    expect(requests[0]).toBe(requests[1]);
+    expect(service.trash().size).toBe(0);
+  });
+  it('requires comparison for drafts from before replacement even if they have no pending write', async () => {
+    service.edit(date, 'Title', 'Unsent draft');
+    await service.flushAndClear();
+    TestBed.inject(VaultService).vault!.vault_epoch = '12345678-1234-4234-8234-123456789014';
+    await service.initialize();
+    await service.save(date);
+    expect(service.state(date).status).toBe('conflict');
+    expect(writes()).toHaveLength(0);
+    const oldID = service.state(date).id;
+    await service.overwriteWithDraft(date);
+    expect(service.state(date).id).not.toBe(oldID);
+    expect(service.state(date).savedBody).toBe('Unsent draft');
+    expect(local.size).toBe(0);
   });
 });
 describe('Civil dates', () => {

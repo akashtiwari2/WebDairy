@@ -51,3 +51,182 @@ textarea:disabled {
   line-height: 1.6;
   border-radius: 8px;
 }
+
+.tool-panel {
+  max-width: 900px;
+  margin: 0 auto 28px;
+  padding: 24px;
+  border: 1px solid #d6dfd1;
+  border-radius: 14px;
+  background: white;
+}
+.tool-panel h2 {
+  font:
+    28px Georgia,
+    serif;
+}
+.tool-panel p {
+  line-height: 1.6;
+}
+.tool-panel label {
+  display: block;
+  margin: 14px 0;
+}
+.tool-panel input:not([type='checkbox']),
+.tool-panel select,
+app-auth-panel select {
+  display: block;
+  width: 100%;
+  max-width: 550px;
+  border: 1px solid #9eae9a;
+  padding: 10px;
+  border-radius: 6px;
+  margin-top: 6px;
+  background: #fff;
+  color: #2e4132;
+}
+.tool-panel button,
+header nav button,
+.calendar-toggle {
+  border: 1px solid #9eae9a;
+  border-radius: 6px;
+  padding: 9px 13px;
+  margin: 4px;
+  color: #34523b;
+  background: #edf2e9;
+}
+.tool-tabs button[aria-pressed='true'] {
+  background: #305d47;
+  color: #fff;
+}
+.tool-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.tool-list {
+  max-height: 420px;
+  overflow: auto;
+}
+.tool-list article {
+  border-bottom: 1px solid #d6dfd1;
+  padding: 12px 0;
+  overflow-wrap: anywhere;
+}
+.tool-list small {
+  display: block;
+  color: #657461;
+}
+.excerpt {
+  white-space: pre-wrap;
+  margin: 6px;
+}
+.comparison {
+  border: 1px solid #d6dfd1;
+  border-radius: 8px;
+  padding: 18px;
+  margin: 16px 0;
+  overflow-wrap: anywhere;
+}
+.comparison pre {
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font: inherit;
+}
+.tool-panel .danger {
+  color: #8b302d;
+}
+.month-picker {
+  font-size: 12px;
+  display: block;
+  margin: 8px 0;
+}
+.month-picker input {
+  width: 100%;
+}
+header {
+  flex-wrap: wrap;
+  gap: 10px;
+}
+html[data-theme='dark'] {
+  background: #15231d;
+  color: #e0e8dd;
+  color-scheme: dark;
+}
+html[data-theme='dark'] header,
+html[data-theme='dark'] .tool-panel,
+html[data-theme='dark'] aside,
+html[data-theme='dark'] .editor,
+html[data-theme='dark'] app-auth-panel .panel {
+  background: #1e3027;
+  border-color: #526c57;
+  color: #e0e8dd;
+}
+html[data-theme='dark'] .tool-panel input,
+html[data-theme='dark'] main input,
+html[data-theme='dark'] main textarea,
+html[data-theme='dark'] main select {
+  background: #1e3027;
+  color: #e0e8dd;
+  border-color: #647d69;
+}
+html[data-theme='dark'] .brand,
+html[data-theme='dark'] .health,
+html[data-theme='dark'] .calendar button,
+html[data-theme='dark'] .month button {
+  color: #e0e8dd;
+}
+html[data-theme='dark'] .intro p,
+html[data-theme='dark'] .eyebrow,
+html[data-theme='dark'] .hint,
+html[data-theme='dark'] .tool-list small,
+html[data-theme='dark'] footer {
+  color: #b0c5ac;
+}
+html[data-theme='dark'] .notice,
+html[data-theme='dark'] .conflict-panel,
+html[data-theme='dark'] .save-message,
+html[data-theme='dark'] app-auth-panel code {
+  background: #3b3926;
+  color: #f0e8c6;
+  border-color: #8b8158;
+}
+html[data-theme='dark'] main button,
+html[data-theme='dark'] header button {
+  background: #344e3c;
+  color: #e0e8dd;
+  border-color: #708976;
+}
+html[data-theme='dark'] .calendar .selected,
+html[data-theme='dark'] .tool-tabs button[aria-pressed='true'] {
+  background: #40674d;
+  color: #fff;
+}
+html[data-theme='dark'] .comparison,
+html[data-theme='dark'] .tool-list article {
+  border-color: #526c57;
+}
+html[data-theme='dark'] input::placeholder,
+html[data-theme='dark'] textarea::placeholder {
+  color: #9cae96;
+}
+html[data-theme='dark'] main .danger,
+html[data-theme='dark'] main .delete {
+  color: #ffb2aa;
+}
+@media (max-width: 760px) {
+  header nav {
+    width: 100%;
+  }
+  .tool-panel {
+    padding: 18px;
+  }
+  .tool-row {
+    display: block;
+  }
+}
+
+main .workspace.calendar-hidden {
+  grid-template-columns: 1fr;
+}

@@ -4,7 +4,10 @@
   >
   <span class="health" role="status">{{ backend() }}</span>
   @if (vault.state() === 'unlocked') {
-    <nav>
+    <nav aria-label="Diary tools">
+      <button (click)="tools.set('diary')">Diary</button
+      ><button (click)="tools.set('library')" [disabled]="vault.busy()">Search / Trash</button
+      ><button (click)="tools.set('backup')" [disabled]="vault.busy()">Backups</button>
       <button (click)="settings.set(!settings())" [disabled]="vault.busy()">Settings</button
       ><button id="lock-vault" (click)="lock()" [disabled]="vault.busy()">Lock</button
       ><button (click)="logout()" [disabled]="vault.busy()">Log out</button>
@@ -16,7 +19,17 @@
     <div class="save-message" role="alert">{{ vault.error() }}</div>
   }
   <app-auth-panel [settings]="settings()" />
-  @if (vault.state() === 'unlocked') {
+  @if (
+    vault.state() === 'setup' ||
+    (vault.state() === 'locked' && vault.auth.authenticated()) ||
+    (vault.state() === 'unlocked' && tools() === 'backup')
+  ) {
+    <app-backup-panel />
+  }
+  @if (vault.state() === 'unlocked' && tools() === 'library') {
+    <app-library-panel (open)="openResult($event)" />
+  }
+  @if (vault.state() === 'unlocked' && tools() === 'diary') {
     <div class="intro">
       <div>
         <p class="eyebrow">A LITTLE SPACE FOR YOUR THOUGHTS</p>
@@ -26,51 +39,67 @@
       <button (click)="goToday()">Go to today</button>
     </div>
     <div class="notice" role="note">
-      Phase 2 · Entries and pending drafts are encrypted in this browser. Keep your recovery key
-      offline. Use sample data until backup export and restore are tested in Phase 3. Wait for Saved
-      before closing the browser.
+      Phase 3 · Keep an encrypted backup file and its recovery key in separate safe places. Back up
+      before switching computers. Wait for Saved before closing the browser.
     </div>
-    <div class="workspace">
-      <aside aria-label="Calendar">
-        <div class="month">
-          <button (click)="moveMonth(-1)" aria-label="Previous month">‹</button>
-          <h2>{{ monthLabel() }}</h2>
-          <button (click)="moveMonth(1)" aria-label="Next month">›</button>
-        </div>
-        <div class="calendar">
-          @for (day of ['S', 'M', 'T', 'W', 'T', 'F', 'S']; track $index) {
-            <span class="weekday">{{ day }}</span>
-          }
-          @for (date of days(); track $index) {
-            @if (date) {
-              <button
-                [class.selected]="date === selected()"
-                [class.today]="date === today()"
-                [attr.aria-label]="date"
-                [attr.aria-pressed]="date === selected()"
-                (click)="select(date)"
-              >
-                {{ +date.slice(8)
-                }}<span class="dot" [class.visible]="diary.dates().has(date)"></span>
-              </button>
-            } @else {
-              <span></span>
+    <button
+      class="calendar-toggle"
+      (click)="calendarOpen.set(!calendarOpen())"
+      [attr.aria-expanded]="calendarOpen()"
+    >
+      Show / hide calendar
+    </button>
+    <div class="workspace" [class.calendar-hidden]="!calendarOpen()">
+      @if (calendarOpen()) {
+        <aside aria-label="Calendar">
+          <div class="month">
+            <button (click)="moveMonth(-1)" aria-label="Previous month">‹</button>
+            <h2>{{ monthLabel() }}</h2>
+            <button (click)="moveMonth(1)" aria-label="Next month">›</button>
+          </div>
+          <label class="month-picker"
+            >Choose month<input
+              type="month"
+              min="0001-01"
+              max="9999-12"
+              [ngModel]="month()"
+              (ngModelChange)="setMonth($event)"
+          /></label>
+          <div class="calendar">
+            @for (day of ['S', 'M', 'T', 'W', 'T', 'F', 'S']; track $index) {
+              <span class="weekday">{{ day }}</span>
             }
+            @for (date of days(); track $index) {
+              @if (date) {
+                <button
+                  [class.selected]="date === selected()"
+                  [class.today]="date === today()"
+                  [attr.aria-label]="date"
+                  [attr.aria-pressed]="date === selected()"
+                  (click)="select(date)"
+                >
+                  {{ +date.slice(8)
+                  }}<span class="dot" [class.visible]="diary.dates().has(date)"></span>
+                </button>
+              } @else {
+                <span></span>
+              }
+            }
+          </div>
+          <label class="date-picker"
+            >Jump to any date<input
+              type="date"
+              [ngModel]="selected()"
+              (ngModelChange)="select($event)"
+          /></label>
+          @if (diary.indexError()) {
+            <p class="hint" role="alert">
+              {{ diary.indexError() }} <button (click)="diary.loadDates()">Retry markers</button>
+            </p>
           }
-        </div>
-        <label class="date-picker"
-          >Jump to any date<input
-            type="date"
-            [ngModel]="selected()"
-            (ngModelChange)="select($event)"
-        /></label>
-        @if (diary.indexError()) {
-          <p class="hint" role="alert">
-            {{ diary.indexError() }} <button (click)="diary.loadDates()">Retry markers</button>
-          </p>
-        }
-        <p class="hint">Past, present and future dates are all open for writing.</p>
-      </aside>
+          <p class="hint">Past, present and future dates are all open for writing.</p>
+        </aside>
+      }
       <section class="editor" aria-label="Diary editor">
         <div class="editor-top">
           <p class="eyebrow">{{ dateLabel() }}</p>
@@ -163,6 +192,8 @@
         </div>
       </section>
     </div>
-    <footer>WebDairy / Encrypted local diary <span>Timezone: Asia/Kolkata</span></footer>
+    <footer>
+      WebDairy / Encrypted local diary <span>Timezone: {{ preferences.value().timezone }}</span>
+    </footer>
   }
 </main>

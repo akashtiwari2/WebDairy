@@ -39,5 +39,9 @@ for attempt in {1..30}; do
  sleep 1
 done
 if [[ "$ready" != true ]]; then echo 'Browser test startup timed out.' >&2;exit 1;fi
+export WEBDIARY_BROWSER_DATABASE="$browser_database"
+export WEBDIARY_BROWSER_BINARY="$browser_temp/diary"
+export WEBDIARY_BROWSER_DOWNLOADS="$browser_temp/downloads"
+mkdir -p "$WEBDIARY_BROWSER_DOWNLOADS"
 cd "$WEBDIARY_ROOT"
 node scripts/test-browser.mjs

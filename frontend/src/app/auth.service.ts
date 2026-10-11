@@ -49,12 +49,12 @@ export class AuthService {
     this.authenticated.set(false);
     await this.session();
   }
-  async request<T>(path: string, method = 'GET', value?: unknown): Promise<T> {
+  async request<T>(path: string, method = 'GET', value?: unknown, timeout = 10000): Promise<T> {
     const response = await fetch(path, {
       method,
       credentials: 'same-origin',
       cache: 'no-store',
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(timeout),
       headers:
         method === 'GET' ? {} : { 'Content-Type': 'application/json', 'X-CSRF-Token': this.csrf },
       body: value === undefined ? undefined : JSON.stringify(value),

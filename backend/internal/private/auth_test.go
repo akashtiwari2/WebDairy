@@ -37,7 +37,7 @@ func TestEnvelopeAndCiphertextLimits(t *testing.T) {
 	if ValidEnvelope(e) {
 		t.Fatal("hostile KDF accepted")
 	}
-	w := Write{CryptoVersion: 1, Nonce: b64(12), Ciphertext: b64(16), OperationID: "12345678-1234-4234-8234-123456789012"}
+	w := Write{Epoch: "12345678-1234-4234-8234-123456789012", CryptoVersion: 1, Nonce: b64(12), Ciphertext: b64(16), OperationID: "12345678-1234-4234-8234-123456789012"}
 	if !ValidWrite(w) {
 		t.Fatal("valid write rejected")
 	}

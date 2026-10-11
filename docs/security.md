@@ -1,4 +1,4 @@
-# Phase 2 security design and limits
+# Phase 3 security design and limits
 
 ## Scope
 
@@ -26,7 +26,8 @@ webdiary|entry|v1|<vault UUID>|<immutable record UUID>
 ```
 
 The encrypted JSON holds civil date, title, body, content creation/update timestamps
-and trash state. Dates are unchanged across timezone changes; Today uses Asia/Kolkata.
+and trash state/deletion timestamp. Dates are unchanged across timezone changes;
+Today uses the configured timezone (Asia/Kolkata by default).
 Encrypted draft context uses `draft` in place of `entry`, binding the same identifiers.
 Pending attempts contain their exact original opaque write inside the encrypted draft,
 so crash/lost-response retry cannot reuse an operation ID with different ciphertext.
@@ -60,7 +61,8 @@ rewrapping only; temporary byte buffers are cleared where practical. Lock clears
 editor, indexes, attempts, recovery display and key references. JavaScript strings,
 WASM/runtime internals, garbage collection and OS memory prevent guaranteed erasure.
 No passphrase, raw key, login secret or plaintext draft is written to localStorage/
-IndexedDB; localStorage holds only the non-sensitive inactivity preference.
+IndexedDB; localStorage holds only non-sensitive inactivity, timezone, theme and trash-period
+preferences. Search text and excerpts remain in the unlocked component memory.
 
 ## Draft and lock behavior
 
@@ -96,6 +98,53 @@ must be implemented for that server before release.
 Cloud Docker trust authentication, a development database superuser and loopback
 HTTP are **synthetic development only**. Before personal use, provision a restricted
 runtime DB role distinct from the migration/admin role, authenticated local database
-access, trusted executable/assets and supported desktop lifecycle. Phase 3 must add
-versioned export and transactional restore and rehearse recovery on a clean database.
+access, trusted executable/assets and supported desktop lifecycle. Phase 3 export/restore has been rehearsed with synthetic data on clean databases;
+Windows packaging and supported desktop acceptance remain future work.
 This implementation has automated development checks, not a third-party security audit.
+
+## Portable backup and restore
+
+Format 1 `.diary` JSON holds wrapped key envelopes, vault UUID, 16-byte random HKDF
+salt, 12-byte nonce and ciphertext. The entire manifest is encrypted with AES-256-GCM:
+HKDF-SHA256 derives a separate backup key from the vault key with info
+`webdiary|backup-key|v1|<vault UUID>`. Additional authenticated data is
+`webdiary|backup|v1|<vault UUID>|<base64 salt>|<base64 SHA256 canonical envelope>`.
+Canonical envelope JSON recursively sorts object keys. Every export generates a
+new salt and nonce. The encrypted manifest contains version/source, vault envelope,
+epoch/generation, encrypted records/revisions, snapshot timestamp and preferences.
+No login hashes, sessions, CSRF tokens, passwords or raw/recovery keys are exported.
+KDF metadata and wrapped keys are public headers, authenticated by the outer tag.
+
+Import rejects unsupported versions/oversized headers before deriving a key. It
+unwraps with the file's passphrase or recovery envelope, verifies the outer manifest,
+then decrypts/authenticates every inner entry and rejects duplicate active dates/IDs.
+Multiple trashed records on one date are allowed. Entry and draft formats remain
+compatible with Phase 2; old trash lacks a timestamp and uses its update timestamp.
+Limits are bounded in browser and server (see api.md). Preview raw keys are temporary,
+cleared on expiry, cancel or lock; existing-diary imports require an unlocked vault.
+
+Export first saves drafts, then takes a consistent encrypted database snapshot.
+An emergency editor-text export can instead encrypt current in-memory drafts during
+an outage; it labels its unconfirmed/conflict content and never calls it Saved.
+Browser IndexedDB stores encrypted backup archives only. A browser copy must succeed
+before download/replacement. Quota/storage failures block replacement. Keep downloaded
+files separately: browser storage and server copies share their machine's failure risk.
+
+Before replacement the browser makes a verified, encrypted current-diary copy,
+stores it locally and starts a download; the owner must confirm saving that file.
+The server binds the stage to the session/CSRF token, checks the exact snapshot
+baseline and atomically captures the safety archive, changes owner/vault/records,
+advances revision/generation and creates a new epoch. SQL failure leaves the original
+state unchanged. The last three successful replacement copies stay encrypted in
+PostgreSQL until superseded; browser copies remain until explicitly removed.
+Stale pending saves/drafts require comparison after a new epoch, even if their old
+record revision coincides with the restored one. Old ordinary writes cannot bypass
+permanent-deletion tombstones. Explicit user-confirmed import can restore old deleted
+content; deletion does not revoke or edit exported files.
+
+This is local snapshot replacement, not merging or multi-device synchronization.
+Old backups require their own historical passphrase/recovery key after rewrapping.
+A clean-database import asks for a new independent local login; it never restores
+login credentials. Automatic/Drive backups and desktop secure token handling belong
+to Phase 4. Trash retention is a minimum period (1–365 days, default 30); deletion
+of expired items requires confirmation while unlocked, rather than an unattended purge.

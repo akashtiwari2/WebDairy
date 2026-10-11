@@ -16,6 +16,8 @@ import (
 
 var ErrUnauthenticated = errors.New("authentication required")
 var ErrLimited = errors.New("try again later")
+var ErrVaultChanged = errors.New("vault replaced")
+var ErrInvalid = errors.New("invalid data")
 var ErrConflict = errors.New("revision conflict")
 var ErrNotFound = errors.New("not found")
 

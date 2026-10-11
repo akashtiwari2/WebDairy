@@ -1,0 +1,87 @@
+<section class="tool-panel" aria-label="Diary library">
+  <div class="tool-tabs">
+    <button (click)="tab.set('search')" [attr.aria-pressed]="tab() === 'search'">Search</button
+    ><button (click)="tab.set('trash')" [attr.aria-pressed]="tab() === 'trash'">
+      Trash ({{ trash().length }})
+    </button>
+  </div>
+  @if (tab() === 'search') {
+    <h2>Find a day</h2>
+    <p>Search title and text in this unlocked browser.</p>
+    <label
+      >Search text<input
+        id="search-query"
+        type="search"
+        [ngModel]="query()"
+        (ngModelChange)="query.set($event)"
+        autocomplete="off"
+    /></label>
+    <div class="tool-row">
+      <label
+        >From date<input type="date" [ngModel]="from()" (ngModelChange)="from.set($event)" /></label
+      ><label
+        >Through date<input type="date" [ngModel]="until()" (ngModelChange)="until.set($event)"
+      /></label>
+    </div>
+    @if (from() && until() && from() > until()) {
+      <p role="alert">Choose a start date before the end date.</p>
+    }
+    <p role="status">{{ results().length }} matching entries</p>
+    <div class="tool-list">
+      @for (entry of results(); track entry.id) {
+        <article>
+          <button (click)="open.emit(entry.date)">
+            {{ entry.date }} · {{ entry.title || 'Untitled' }}
+          </button>
+          <p class="excerpt">{{ entry.excerpt }}</p>
+          <small>{{ entry.status === 'saved' ? 'Saved' : 'Includes a draft' }}</small>
+        </article>
+      } @empty {
+        <p>No entries match these filters.</p>
+      }
+    </div>
+  } @else {
+    <h2>Trash</h2>
+    <p>
+      Entries are kept for at least {{ preferences.value().trash_days }} days. Cleanup happens only
+      when you confirm it here. Earlier backups can retain deleted text.
+    </p>
+    <button (click)="purgeExpired()" [disabled]="vault.busy() || !expired().length">
+      Delete expired entries ({{ expired().length }})
+    </button>
+    <div class="tool-list">
+      @for (entry of trash(); track entry.id) {
+        <article>
+          <button (click)="inspect(entry.id)">
+            {{ entry.date }} · {{ entry.title || 'Untitled' }}</button
+          ><small>Deleted {{ timestamp(entry.trashed_at || entry.updated_at) }}</small>
+        </article>
+      } @empty {
+        <p>Trash is empty.</p>
+      }
+    </div>
+    @if (selected(); as entry) {
+      <div class="comparison">
+        <h3>{{ entry.date }} · {{ entry.title || 'Untitled' }}</h3>
+        <pre>{{ entry.body }}</pre>
+        @if (occupied(); as current) {
+          <p role="alert">This date is occupied. The existing entry will be preserved.</p>
+          <h4>{{ current.title || 'Untitled' }} · existing entry</h4>
+          <pre>{{ current.body }}</pre>
+        }
+        <label
+          >Restore date (original: {{ entry.date }})<input
+            id="trash-restore-date"
+            type="date"
+            [ngModel]="alternative() || entry.date"
+            (ngModelChange)="alternative.set($event)"
+        /></label>
+        <button (click)="restore(entry.id)" [disabled]="vault.busy() || !!occupied()">
+          Restore entry</button
+        ><button class="danger" (click)="purge(entry.id)" [disabled]="vault.busy()">
+          Permanently delete
+        </button>
+      </div>
+    }
+  }
+</section>

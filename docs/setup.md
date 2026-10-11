@@ -56,7 +56,7 @@ data only. Port conflicts are reported without stopping unrelated services.
 
 - Backend unavailable: keep the Go terminal running; inspect its current error.
 - Database not-ready: verify `pg_isready` and actual credentials with `psql`, then
-  run `go run ./cmd/diary -migrate` from backend. Health requires migration 5.
+  run `go run ./cmd/diary -migrate` from backend. Health requires migration 6.
 - Password authentication failed: the PostgreSQL role/password in DATABASE_URL
   differs from your actual database account. This is separate from WebDairy login.
 - Login expired: unlock after logging in again; encrypted pending drafts stay local.
@@ -70,8 +70,9 @@ data only. Port conflicts are reported without stopping unrelated services.
 - Forgotten vault passphrase: after login, use the offline recovery key to set a
   new passphrase. Login reset cannot decrypt the diary.
 
-Migrations 1–5 apply transactionally once under an advisory lock; startup never
-resets data. Version 5 adds login/session/revision support. Existing Phase 1
+Migrations 1–6 apply transactionally once under an advisory lock; startup never
+resets data. Version 5 adds login/session/revision support; version 6 adds restore
+staging, backup history, vault epochs and permanent-deletion tombstones. Existing Phase 1
 plaintext development rows are preserved separately, without automatic import.
 
 `bash scripts/test-integration.sh` uses a disposable synthetic database, ignoring
@@ -79,3 +80,12 @@ any caller-supplied personal DATABASE_URL. Ordinary unit tests skip database tes
 unless TEST_DATABASE_URL is provided. Cloud publication retains setup/source,
 not a guaranteed database backup. Docker data should not be assumed to survive a
 new cloud snapshot/task.
+
+## Updating from Phase 2
+
+Stop your own backend/frontend processes. From the cloned repository root run
+`git pull`; keep your local connection variable configured. From `backend`, run
+`go run ./cmd/diary -migrate`, then `go run ./cmd/diary`. From `frontend`, run
+`npm ci`, then `npm start`. The migration preserves encrypted entries and old
+Phase 1 development data. Unlock, then use Search / Trash, Settings or Backups.
+See [backup and restore](backup.md) before switching machines.

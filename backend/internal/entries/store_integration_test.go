@@ -34,7 +34,7 @@ func TestPostgresWorkflow(t *testing.T) {
 		}
 	}
 	var versions int
-	if err := pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&versions); err != nil || versions != 5 {
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&versions); err != nil || versions != 6 {
 		t.Fatal("migration repeatability failed", err)
 	}
 	s := &Store{Pool: pool}
@@ -216,7 +216,7 @@ func TestPostgresWorkflow(t *testing.T) {
 	})
 	t.Run("failed migration rolls back schema and version", func(t *testing.T) {
 		dir := t.TempDir()
-		if err := os.WriteFile(filepath.Join(dir, "006_failure.sql"), []byte(`CREATE TABLE migration_should_rollback(id integer); SELECT deliberately_missing_function();`), 0600); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "007_failure.sql"), []byte(`CREATE TABLE migration_should_rollback(id integer); SELECT deliberately_missing_function();`), 0600); err != nil {
 			t.Fatal(err)
 		}
 		if err := database.Migrate(ctx, pool, dir); err == nil {
@@ -226,7 +226,7 @@ func TestPostgresWorkflow(t *testing.T) {
 		if err := pool.QueryRow(ctx, `SELECT to_regclass('migration_should_rollback') IS NULL`).Scan(&absent); err != nil || !absent {
 			t.Fatal("failed migration left table")
 		}
-		if err := pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&versions); err != nil || versions != 5 {
+		if err := pool.QueryRow(ctx, `SELECT count(*) FROM schema_migrations`).Scan(&versions); err != nil || versions != 6 {
 			t.Fatal("failed migration recorded version")
 		}
 	})

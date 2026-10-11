@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/akashtiwari2/WebDairy/backend/internal/private"
+	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v4"
 )
 
@@ -29,6 +30,10 @@ func privateFailure(c echo.Context, err error) error {
 	switch {
 	case errors.As(err, &conflict):
 		return c.JSON(409, map[string]any{"error": "revision_conflict", "current": conflict.Current})
+	case errors.Is(err, private.ErrVaultChanged):
+		return c.JSON(409, map[string]string{"error": "vault_changed"})
+	case errors.Is(err, private.ErrInvalid):
+		return invalid(c)
 	case errors.Is(err, private.ErrConflict):
 		return c.JSON(409, map[string]string{"error": "revision_conflict"})
 	case errors.Is(err, private.ErrUnauthenticated):
@@ -69,7 +74,11 @@ func New(checkDatabase func(context.Context) error, s *private.Store) *echo.Echo
 					return c.NoContent(403)
 				}
 			}
-			ctx, cancel := context.WithTimeout(c.Request().Context(), 10*time.Second)
+			timeout := 10 * time.Second
+			if c.Path() == "/api/restore/stage" || c.Path() == "/api/restore/commit" {
+				timeout = 60 * time.Second
+			}
+			ctx, cancel := context.WithTimeout(c.Request().Context(), timeout)
 			defer cancel()
 			c.SetRequest(c.Request().WithContext(ctx))
 			return next(c)
@@ -104,7 +113,7 @@ func New(checkDatabase func(context.Context) error, s *private.Store) *echo.Echo
 		if err := checkDatabase(c.Request().Context()); err != nil {
 			return c.JSON(503, map[string]string{"status": "unavailable", "database": "not-ready"})
 		}
-		return c.JSON(200, map[string]string{"status": "ok", "database": "ready", "stage": "phase2"})
+		return c.JSON(200, map[string]string{"status": "ok", "database": "ready", "stage": "phase3"})
 	})
 	e.GET("/api/auth/session", func(c echo.Context) error {
 		initialized, err := s.Initialized(c.Request().Context())
@@ -253,6 +262,133 @@ func New(checkDatabase func(context.Context) error, s *private.Store) *echo.Echo
 			return privateFailure(c, err)
 		}
 		return c.JSON(200, record)
+	}, authenticate)
+
+	e.GET("/api/backup/snapshot", func(c echo.Context) error {
+		snapshot, err := s.Snapshot(c.Request().Context())
+		if err != nil {
+			return privateFailure(c, err)
+		}
+		return c.JSON(200, snapshot)
+	}, authenticate)
+	e.DELETE("/api/entries/:id", func(c echo.Context) error {
+		var request struct {
+			Epoch     string `json:"vault_epoch"`
+			Revision  int64  `json:"expected_revision"`
+			Operation string `json:"operation_id"`
+		}
+		if err := decode(c, &request); err != nil {
+			return err
+		}
+		if !private.UUID.MatchString(c.Param("id")) || !private.UUID.MatchString(request.Epoch) || !private.UUID.MatchString(request.Operation) || request.Revision < 1 || request.Revision > maxRevision {
+			return invalid(c)
+		}
+		if err := s.Purge(c.Request().Context(), c.Param("id"), request.Epoch, request.Operation, request.Revision); err != nil {
+			return privateFailure(c, err)
+		}
+		return c.NoContent(204)
+	}, authenticate)
+	restoreAccess := func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			initialized, err := s.Initialized(c.Request().Context())
+			if err != nil {
+				return privateFailure(c, err)
+			}
+			c.Set("fresh_restore", !initialized)
+			if initialized {
+				return authenticate(next)(c)
+			}
+			return next(c)
+		}
+	}
+	binding := func(c echo.Context) string {
+		if c.Get("fresh_restore") == true {
+			return cookie(c, csrfCookie)
+		}
+		return cookie(c, sessionCookie)
+	}
+	e.POST("/api/restore/stage", func(c echo.Context) error {
+		var request private.Stage
+		if err := decodeLimit(c, &request, 96*1024*1024); err != nil {
+			return err
+		}
+		if !private.ValidStage(request) {
+			return invalid(c)
+		}
+		if err := s.StageRestore(c.Request().Context(), request, binding(c)); err != nil {
+			return privateFailure(c, err)
+		}
+		return c.JSON(200, map[string]string{"stage_id": request.ID})
+	}, restoreAccess)
+	e.POST("/api/restore/commit", func(c echo.Context) error {
+		var request struct {
+			ID       string `json:"stage_id"`
+			Password string `json:"new_login_password"`
+		}
+		if err := decode(c, &request); err != nil {
+			return err
+		}
+		if !private.UUID.MatchString(request.ID) {
+			return invalid(c)
+		}
+		fresh := c.Get("fresh_restore") == true
+		if fresh {
+			if len(request.Password) < 12 || len(request.Password) > 1024 {
+				return invalid(c)
+			}
+			if err := s.LoginAllowed(c.Request().Context()); err != nil {
+				return privateFailure(c, err)
+			}
+		} else if request.Password != "" {
+			return invalid(c)
+		}
+		v, err := s.CommitRestore(c.Request().Context(), request.ID, binding(c), request.Password)
+		if err != nil {
+			return privateFailure(c, err)
+		}
+		if fresh {
+			token, csrf, err := s.NewSession(c.Request().Context())
+			if err != nil {
+				return privateFailure(c, err)
+			}
+			setCookie(c, sessionCookie, token, 1800)
+			setCookie(c, csrfCookie, csrf, 1800)
+		}
+		return c.JSON(200, v)
+	}, restoreAccess)
+	e.GET("/api/backup/history", func(c echo.Context) error {
+		rows, err := s.Pool.Query(c.Request().Context(), `SELECT id::text,saved_at FROM restore_backups ORDER BY saved_at DESC,id DESC LIMIT 3`)
+		if err != nil {
+			return privateFailure(c, err)
+		}
+		defer rows.Close()
+		history := []map[string]any{}
+		for rows.Next() {
+			var id string
+			var at time.Time
+			if err = rows.Scan(&id, &at); err != nil {
+				return privateFailure(c, err)
+			}
+			history = append(history, map[string]any{"id": id, "saved_at": at})
+		}
+		if err = rows.Err(); err != nil {
+			return privateFailure(c, err)
+		}
+		return c.JSON(200, map[string]any{"backups": history})
+	}, authenticate)
+	e.GET("/api/backup/history/:id", func(c echo.Context) error {
+		if !private.UUID.MatchString(c.Param("id")) {
+			return invalid(c)
+		}
+		var encoded []byte
+		err := s.Pool.QueryRow(c.Request().Context(), `SELECT archive FROM restore_backups WHERE id=$1::uuid`, c.Param("id")).Scan(&encoded)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return privateFailure(c, private.ErrNotFound)
+		}
+		if err != nil {
+			return privateFailure(c, err)
+		}
+		return c.Blob(200, "application/json", encoded)
 	}, authenticate)
 	return e
 }

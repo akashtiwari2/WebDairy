@@ -2,6 +2,8 @@
 // temporary Chromium profile (CDP on loopback 9222). Refuses an existing vault.
 // Test passwords/diary strings below are synthetic; recovery keys stay in RAM.
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { readdirSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 const tabs = await (await fetch("http://127.0.0.1:9222/json")).json();
 const tab = tabs.find((t) => t.type === "page");
 const ws = new WebSocket(tab.webSocketDebuggerUrl);
@@ -44,10 +46,33 @@ async function waitFor(expression) {
   }
   throw new Error("Browser condition timed out: " + expression);
 }
+async function reload() {
+  const loaded = new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      ws.removeEventListener("message", listener);
+      reject(new Error("Page reload timed out"));
+    }, 10000);
+    const listener = (e) => {
+      if (JSON.parse(e.data).method === "Page.loadEventFired") {
+        clearTimeout(timer);
+        ws.removeEventListener("message", listener);
+        resolve();
+      }
+    };
+    ws.addEventListener("message", listener);
+  });
+  await send("Page.reload", { ignoreCache: true });
+  await loaded;
+}
 async function action(code) {
   return evaluate(`(async()=>{const a=${app},p=${panel};${code}})()`);
 }
 try {
+  await send("Page.enable");
+  await send("Browser.setDownloadBehavior", {
+    behavior: "allow",
+    downloadPath: process.env.WEBDIARY_BROWSER_DOWNLOADS,
+  });
   await send("Page.navigate", { url: "http://127.0.0.1:4200" });
   await waitFor(`!!window.ng && !!document.querySelector('#setup-login')`);
   assert.equal(
@@ -144,7 +169,7 @@ try {
   await send("Target.closeTarget", { targetId: second.targetId });
   // Emulate backend outage; draft encryption/IndexedDB still succeeds before lock.
   await action(
-    `window.originalFetch=window.fetch;window.fetch=(path,init)=>init?.method==='PUT'&&String(path).startsWith('/api/entries/')?Promise.resolve(new Response('{}',{status:503})):window.originalFetch(path,init);a.diary.edit(a.selected(),'SYNTHETIC FUTURE','SYNTHETIC OFFLINE DRAFT');await a.diary.save(a.selected());await a.vault.perform(()=>a.vault.lock());`,
+    `await a.select('2099-10-20');window.originalFetch=window.fetch;window.fetch=(path,init)=>init?.method==='PUT'&&String(path).startsWith('/api/entries/')||String(path).startsWith('/api/backup/')?Promise.resolve(new Response('{}',{status:503})):window.originalFetch(path,init);a.diary.edit(a.selected(),'SYNTHETIC FUTURE','SYNTHETIC OFFLINE DRAFT');await a.diary.save(a.selected());const offline=await a.backup.exportBackup(true);if(JSON.stringify(offline).includes('SYNTHETIC'))throw new Error('Plaintext in emergency export');await a.backup.inspectText(JSON.stringify(offline),${JSON.stringify(setup.secret)},'recovery');if(a.backup.preview().source!=='browser-draft')throw new Error('Emergency export is not labelled');await a.vault.perform(()=>a.vault.lock());`,
   );
   assert.equal(await action(`return a.vault.state();`), "locked");
   const persisted = await evaluate(
@@ -153,11 +178,11 @@ try {
   assert.equal(persisted.length, 1);
   assert.equal(JSON.stringify(persisted).includes("SYNTHETIC"), false);
   assert.equal(JSON.stringify(persisted).includes("2099-10-20"), false);
-  await send("Page.reload", { ignoreCache: true });
+  await reload();
   await waitFor(`!!document.querySelector('#unlock-pass')`);
-  await action(
-    `p.passphrase='synthetic vault passphrase';await p.unlock();await a.select('2099-10-20');`,
-  );
+  await action(`p.passphrase='synthetic vault passphrase';await p.unlock();`);
+  await waitFor(`!!document.querySelector('#body')`);
+  await action(`await a.select('2099-10-20');`);
   assert.equal(
     await action(`return a.entry().body;`),
     "SYNTHETIC OFFLINE DRAFT",
@@ -215,15 +240,286 @@ try {
     `p.loginPassword='replacement synthetic login';await p.login();p.passphrase='recovered synthetic passphrase';await p.unlock();`,
   );
   assert.equal(await action(`return a.vault.state();`), "unlocked");
+  // Phase 3: real UI search stays local, with case-insensitive/date filters.
+  await action(`a.tools.set('library');`);
+  await waitFor(`!!document.querySelector('#search-query')`);
+  const library = `window.ng.getComponent(document.querySelector('app-library-panel'))`;
+  const search = await evaluate(
+    `(async()=>{const a=${app},l=${library};window.phase3Requests=[];const original=window.fetch;window.fetch=(path,init)=>{window.phase3Requests.push(String(path));return original(path,init)};l.query.set('sToRaGe FaIlUrE');l.from.set('2099-10-20');l.until.set('2099-10-20');return {count:l.results().length,body:l.results()[0]?.body,requests:window.phase3Requests};})()`,
+  );
+  assert.equal(search.count, 1);
+  assert.equal(search.body, "SYNTHETIC STORAGE FAILURE");
+  assert.deepEqual(search.requests, []);
+  await evaluate(`${library}.open.emit('2099-10-20')`);
+  await waitFor(
+    `${app}.tools()==='diary' && !!document.querySelector('#body')`,
+  );
+  // Preserve trash on same-date recreation; compare occupied dates, restore elsewhere.
+  await action(
+    `await a.select('2031-03-04');a.diary.edit(a.selected(),'SYNTHETIC TRASH ORIGINAL','SYNTHETIC TRASH ORIGINAL BODY');await a.diary.save(a.selected());window.trashID=a.entry().id;await a.diary.deleteEntry(a.selected());await a.diary.load(a.selected());a.diary.edit(a.selected(),'SYNTHETIC OCCUPIED','SYNTHETIC KEEP OCCUPIED');await a.diary.save(a.selected());a.tools.set('library');`,
+  );
+  await waitFor(`!!document.querySelector('app-library-panel')`);
+  await evaluate(
+    `${library}.tab.set('trash');${library}.inspect(window.trashID);`,
+  );
+  await waitFor(`document.body.innerText.includes('This date is occupied')`);
+  const occupied = await action(
+    `try{await a.diary.restoreTrash(window.trashID,'2031-03-04');return false;}catch{return a.diary.state('2031-03-04').body==='SYNTHETIC KEEP OCCUPIED';}`,
+  );
+  assert.equal(occupied, true);
+  await evaluate(
+    `${library}.alternative.set('2031-03-05');${library}.restore(window.trashID);`,
+  );
+  await waitFor(
+    `${app}.tools()==='diary' && ${app}.selected()==='2031-03-05' && ${app}.entry().status==='saved'`,
+  );
+  assert.equal(
+    await action(`return a.entry().body;`),
+    "SYNTHETIC TRASH ORIGINAL BODY",
+  );
+  for (const date of ["2031-03-04", "2031-03-05"])
+    await action(
+      `await a.diary.deleteEntry('${date}');const row=[...a.diary.trash().values()].find(s=>s.date==='${date}');await a.diary.purgeTrash(row.id);`,
+    );
+  // Include title-only Today and retained trash in the portable snapshot.
+  const today = await action(`return a.today();`);
+  await action(
+    `await a.select(${JSON.stringify(today)});a.diary.edit(a.selected(),'SYNTHETIC TODAY TITLE ONLY','');await a.diary.save(a.selected());await a.select('2031-03-07');a.diary.edit(a.selected(),'SYNTHETIC RETAINED TRASH','SYNTHETIC RETAINED TRASH BODY');await a.diary.save(a.selected());await a.diary.deleteEntry(a.selected());a.preferences.set({...a.preferences.value(),theme:'dark',timezone:'America/New_York'});`,
+  );
+  assert.equal(
+    await evaluate(`document.documentElement.dataset.theme`),
+    "dark",
+  );
+  await action(
+    `await a.vault.lock();p.passphrase='recovered synthetic passphrase';await p.unlock();`,
+  );
+  assert.equal(await action(`return a.selected()===a.today();`), true);
+  // Confirm the hidden calendar expands the editor, and mobile layout has no overflow.
+  await action(`a.calendarOpen.set(false);`);
+  await waitFor(`document.querySelector('.workspace.calendar-hidden')!==null`);
+  assert.equal(
+    await evaluate(`document.querySelector('.workspace').children.length`),
+    1,
+  );
+  assert.equal(
+    await evaluate(
+      `getComputedStyle(document.querySelector('.workspace')).gridTemplateColumns.split(' ').length`,
+    ),
+    1,
+  );
+  if (process.env.WEBDIARY_BROWSER_SCREENSHOT_DIR) {
+    mkdirSync(process.env.WEBDIARY_BROWSER_SCREENSHOT_DIR, { recursive: true });
+    await send("Emulation.setDeviceMetricsOverride", {
+      width: 1200,
+      height: 900,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+    await action(`a.tools.set('backup');`);
+    await waitFor(`!!document.querySelector('#export-backup')`);
+    const desktop = await send("Page.captureScreenshot", { format: "png" });
+    writeFileSync(
+      process.env.WEBDIARY_BROWSER_SCREENSHOT_DIR + "/backups-desktop.png",
+      Buffer.from(desktop.data, "base64"),
+    );
+    await send("Emulation.setDeviceMetricsOverride", {
+      width: 390,
+      height: 844,
+      deviceScaleFactor: 1,
+      mobile: true,
+    });
+    await sleep(200);
+    assert.equal(
+      await evaluate(`document.documentElement.scrollWidth<=window.innerWidth`),
+      true,
+    );
+    const mobile = await send("Page.captureScreenshot", { format: "png" });
+    writeFileSync(
+      process.env.WEBDIARY_BROWSER_SCREENSHOT_DIR + "/backups-mobile.png",
+      Buffer.from(mobile.data, "base64"),
+    );
+    await send("Emulation.setDeviceMetricsOverride", {
+      width: 1200,
+      height: 900,
+      deviceScaleFactor: 1,
+      mobile: false,
+    });
+    await action(`a.tools.set('diary');`);
+  }
+  const expected = await action(
+    `return {active:[...a.diary.states().values()].filter(s=>s.revision>0).map(s=>({date:s.date,title:s.title,body:s.body})).sort((a,b)=>a.date.localeCompare(b.date)),trash:[...a.diary.trash().values()].map(s=>({date:s.date,title:s.title,body:s.body}))};`,
+  );
+  const archive = await action(`return await a.backup.exportBackup();`);
+  assert.equal(JSON.stringify(archive).includes("SYNTHETIC"), false);
+  await sleep(300);
+  const downloaded = readdirSync(process.env.WEBDIARY_BROWSER_DOWNLOADS).filter(
+    (n) => n.endsWith(".diary"),
+  );
+  assert.ok(downloaded.length > 0);
+  const backupName = downloaded.find(
+    (name) =>
+      JSON.parse(
+        readFileSync(
+          process.env.WEBDIARY_BROWSER_DOWNLOADS + "/" + name,
+          "utf8",
+        ),
+      ).ciphertext === archive.ciphertext,
+  );
+  assert.ok(
+    backupName,
+    "Database export was downloaded separately from emergency drafts",
+  );
+  const file = readFileSync(
+    process.env.WEBDIARY_BROWSER_DOWNLOADS + "/" + backupName,
+    "utf8",
+  );
+  assert.equal(JSON.parse(file).format, "webdiary-backup");
+  assert.equal(file.includes("SYNTHETIC"), false);
+  // Invalid file/key preview never changes the existing database.
+  const before = await action(
+    `return JSON.stringify(await a.vault.auth.request('/api/backup/snapshot'));`,
+  );
+  const invalid = { ...archive, ciphertext: "AAAAAAAAAAAAAAAAAAAAAA==" };
+  assert.equal(
+    await action(
+      `try{await a.backup.inspectText(${JSON.stringify(JSON.stringify(invalid))},${JSON.stringify(replacement)},'recovery');return false;}catch{return a.backup.preview()===null;}`,
+    ),
+    true,
+  );
+  assert.equal(
+    await action(
+      `try{await a.backup.inspectText(${JSON.stringify(JSON.stringify(archive))},'wrong synthetic passphrase','passphrase');return false;}catch{return a.backup.preview()===null;}`,
+    ),
+    true,
+  );
+  const after = await action(
+    `return JSON.stringify(await a.vault.auth.request('/api/backup/snapshot'));`,
+  );
+  assert.deepEqual(JSON.parse(after).records, JSON.parse(before).records);
+  assert.deepEqual(JSON.parse(after).vault, JSON.parse(before).vault);
+  // Failed local safety storage cannot authorize replacement.
+  await action(
+    `await a.backup.inspectText(${JSON.stringify(JSON.stringify(archive))},${JSON.stringify(replacement)},'recovery');window.originalBackupSave=a.backup.store.save;a.backup.store.save=async()=>{throw new Error('Synthetic backup storage full');};`,
+  );
+  assert.equal(
+    await action(
+      `try{await a.backup.prepareSafety();return false;}catch{return !a.backup.safetyReady();}finally{a.backup.store.save=window.originalBackupSave;}`,
+    ),
+    true,
+  );
+  assert.equal(
+    await action(
+      `try{await a.backup.commit('',true);return false;}catch{return a.vault.state()==='unlocked';}`,
+    ),
+    true,
+  );
+  await action(
+    `await a.backup.inspectText(${JSON.stringify(JSON.stringify(archive))},${JSON.stringify(replacement)},'recovery');await a.backup.prepareSafety();await a.select('2099-10-20');a.diary.edit(a.selected(),'Title','SYNTHETIC CHANGED AFTER SAFETY');await a.diary.save(a.selected());`,
+  );
+  const stale = await action(
+    `try{await a.backup.commit('',true);return '';}catch(e){return e.message;}`,
+  );
+  assert.ok(stale.includes("Current diary changed"));
+  assert.equal(
+    await action(`return a.diary.state('2099-10-20').body;`),
+    "SYNTHETIC CHANGED AFTER SAFETY",
+  );
+  // Simulate a lost successful commit response. Retry acknowledges once without replacing again.
+  await action(
+    `await a.backup.prepareSafety();const original=window.fetch;let lost=true;window.fetch=async(path,init)=>{const response=await original(path,init);if(lost&&String(path)==='/api/restore/commit'&&response.ok){lost=false;throw new TypeError('Synthetic lost restore acknowledgement');}return response;};await a.backup.commit('',true);`,
+  );
+  assert.equal(await action(`return a.vault.state();`), "unlocked");
+  assert.equal(
+    await action(`return a.diary.state('2099-10-20').body;`),
+    "SYNTHETIC STORAGE FAILURE",
+  );
+  assert.equal(await action(`return a.backup.history().length;`), 1);
+  const safetyID = await action(`return a.backup.history()[0].id;`);
+  await action(`await a.backup.downloadHistory(${JSON.stringify(safetyID)});`);
+  // Gate: recreate ONLY this runner's disposable DB, restore from the downloaded file
+  // using each independent secret, and choose a fresh local login each time.
+  const database = process.env.WEBDIARY_BROWSER_DATABASE;
+  assert.match(database, /^webdiary_browser_[0-9]+_[0-9]+$/);
+  for (const mode of ["passphrase", "recovery"]) {
+    await action(`await a.vault.lock();`);
+    execFileSync(
+      "docker",
+      [
+        "exec",
+        "webdiary-postgres",
+        "dropdb",
+        "--force",
+        "-U",
+        "diary_dev",
+        database,
+      ],
+      { stdio: "pipe" },
+    );
+    execFileSync(
+      "docker",
+      ["exec", "webdiary-postgres", "createdb", "-U", "diary_dev", database],
+      { stdio: "pipe" },
+    );
+    execFileSync(
+      process.env.WEBDIARY_BROWSER_BINARY,
+      ["-migrate", "-migrations", "./migrations"],
+      {
+        env: process.env,
+        stdio: "pipe",
+      },
+    );
+    // Existing pool connections were terminated by dropdb; wait until bootstrap
+    // succeeds on a reconnected pool before loading the fresh setup page.
+    let reconnected = false;
+    for (let attempt = 0; attempt < 50; attempt++) {
+      if ((await fetch("http://127.0.0.1:8080/api/auth/session")).ok) {
+        reconnected = true;
+        break;
+      }
+      await sleep(100);
+    }
+    assert.ok(
+      reconnected,
+      "Backend reconnected to recreated disposable database",
+    );
+    await reload();
+    await waitFor(`!!document.querySelector('#setup-login')`);
+    const secret =
+      mode === "passphrase" ? "recovered synthetic passphrase" : replacement;
+    await action(
+      `await a.backup.inspectText(${JSON.stringify(file)},${JSON.stringify(secret)},'${mode}');`,
+    );
+    assert.equal(await action(`return a.backup.preview().active;`), 3);
+    assert.equal(await action(`return a.backup.preview().trashed;`), 1);
+    await action(
+      `await a.backup.commit('fresh synthetic ${mode} login',true);`,
+    );
+    await waitFor(
+      `${app}.vault.state()==='unlocked' && !!document.querySelector('#body')`,
+    );
+    const restored = await action(
+      `return {active:[...a.diary.states().values()].filter(s=>s.revision>0).map(s=>({date:s.date,title:s.title,body:s.body})).sort((a,b)=>a.date.localeCompare(b.date)),trash:[...a.diary.trash().values()].map(s=>({date:s.date,title:s.title,body:s.body}))};`,
+    );
+    assert.deepEqual(restored, expected);
+    assert.equal(
+      await action(`return a.preferences.value().timezone;`),
+      "America/New_York",
+    );
+    assert.equal(
+      await evaluate(`document.documentElement.dataset.theme`),
+      "dark",
+    );
+    assert.equal(await action(`return a.selected()===a.today();`), true);
+  }
   // Authenticated ciphertext corruption cannot open an empty replacement vault.
   await action(
-    `const page=await a.vault.auth.request('/api/entries');const r=page.records[0];await a.vault.auth.request('/api/entries/'+r.id,'PUT',{crypto_version:1,nonce:r.nonce,ciphertext:'AAAAAAAAAAAAAAAAAAAAAA==',expected_revision:r.revision,operation_id:crypto.randomUUID()});await a.vault.perform(()=>a.vault.lock());p.passphrase='recovered synthetic passphrase';await p.unlock();`,
+    `const page=await a.vault.auth.request('/api/entries');const r=page.records[0];await a.vault.auth.request('/api/entries/'+r.id,'PUT',{crypto_version:1,vault_epoch:a.vault.vault.vault_epoch,nonce:r.nonce,ciphertext:'AAAAAAAAAAAAAAAAAAAAAA==',expected_revision:r.revision,operation_id:crypto.randomUUID()});await a.vault.perform(()=>a.vault.lock());p.passphrase='recovered synthetic passphrase';await p.unlock();`,
   );
   assert.equal(await action(`return a.vault.state();`), "locked");
   assert.equal(await action(`return a.diary.states().size;`), 0);
   assert.ok((await action(`return a.vault.error();`)).includes("integrity"));
   console.log(
-    `PASS: setup, encrypted API/IndexedDB, wrong keys, second-tab exclusion, lock/reload drafts, passphrase change, recovery rotation, auto-lock, storage failure, login change and tampering. Setup KDF flow: ${Math.round(setup.ms)} ms.`,
+    `PASS: setup, encrypted API/IndexedDB, wrong keys, second-tab exclusion, lock/reload drafts, passphrase change, recovery rotation, auto-lock, storage failure, login change and tampering; Phase 3 local search, occupied trash restore/purge, encrypted file download/emergency export, failed-safety preservation, invalid-file preservation, stale-safety rejection, lost-commit retry and clean-database recovery with BOTH passphrase and recovery key. Setup KDF flow: ${Math.round(setup.ms)} ms.`,
   );
 } finally {
   ws.close();

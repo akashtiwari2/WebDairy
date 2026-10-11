@@ -40,7 +40,7 @@ func run() error {
 		if err := database.Migrate(migrationCtx, pool, *migrationPath); err != nil {
 			return err
 		}
-		fmt.Println("Database migrations ready (versions 1 through 5).")
+		fmt.Println("Database migrations ready (versions 1 through 6).")
 		return nil
 	}
 	if *resetLogin {
@@ -74,11 +74,11 @@ func run() error {
 	}
 	e := server.New(func(ctx context.Context) error {
 		var version int
-		err := pool.QueryRow(ctx, "SELECT version FROM schema_migrations WHERE version = 5").Scan(&version)
+		err := pool.QueryRow(ctx, "SELECT version FROM schema_migrations WHERE version = 6").Scan(&version)
 		return err
 	}, &private.Store{Pool: pool})
 	addr := "127.0.0.1:8080"
-	fmt.Println("WebDairy Phase 2 backend listening on", addr)
+	fmt.Println("WebDairy Phase 3 backend listening on", addr)
 	failure := make(chan error, 1)
 	go func() { failure <- e.Start(addr) }()
 	select {

@@ -1,31 +1,33 @@
 import { Component, DestroyRef, computed, effect, inject, signal } from '@angular/core';
+import { LibraryPanel } from './library-panel';
+import { BackupService } from './backup.service';
+import { BackupPanel } from './backup-panel';
+import { PreferencesService, todayInZone } from './preferences.service';
 import { AuthPanel } from './auth-panel';
 import { VaultService } from './vault.service';
 import { FormsModule } from '@angular/forms';
 import { DiaryService, SaveStatus, validCivilDate } from './diary.service';
 
 export function todayInKolkata(now = new Date()): string {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Kolkata',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(now);
-  const value = (type: string) => parts.find((part) => part.type === type)!.value;
-  return `${value('year')}-${value('month')}-${value('day')}`;
+  return todayInZone('Asia/Kolkata', now);
 }
 
 @Component({
   selector: 'app-root',
-  imports: [FormsModule, AuthPanel],
+  imports: [FormsModule, AuthPanel, LibraryPanel, BackupPanel],
   templateUrl: './app.html',
   styleUrl: './app.css',
 })
 export class App {
+  readonly preferences = inject(PreferencesService);
+  readonly tools = signal<'diary' | 'library' | 'backup'>('diary');
+  readonly calendarOpen = signal(true);
+  private opened = false;
   readonly diary = inject(DiaryService);
   readonly vault = inject(VaultService);
+  readonly backup = inject(BackupService);
   readonly settings = signal(false);
-  readonly today = signal(todayInKolkata());
+  readonly today = signal(todayInZone(this.preferences.value().timezone));
   readonly selected = signal(this.today());
   readonly month = signal(this.today().slice(0, 7));
   readonly entry = computed(() => {
@@ -84,8 +86,19 @@ export class App {
     void this.checkHealth();
     void this.vault.perform(() => this.vault.start());
     effect(() => {
-      if (this.vault.state() === 'unlocked') void this.diary.load(this.selected());
-      else this.settings.set(false);
+      this.today.set(todayInZone(this.preferences.value().timezone));
+      if (this.vault.state() === 'unlocked') {
+        if (!this.opened) {
+          this.selected.set(this.today());
+          this.month.set(this.today().slice(0, 7));
+        }
+        this.opened = true;
+        void this.diary.load(this.selected());
+      } else {
+        this.opened = false;
+        this.settings.set(false);
+        this.tools.set('diary');
+      }
       if (
         this.vault.state() === 'unlocked' &&
         !this.vault.auth.authenticated() &&
@@ -94,7 +107,10 @@ export class App {
         void this.vault.perform(() => this.vault.lock());
     });
     // Midnight changes the Today marker, never the selected date or editor text.
-    const marker = setInterval(() => this.today.set(todayInKolkata()), 30000);
+    const marker = setInterval(
+      () => this.today.set(todayInZone(this.preferences.value().timezone)),
+      30000,
+    );
     inject(DestroyRef).onDestroy(() => clearInterval(marker));
   }
   lock() {
@@ -126,6 +142,13 @@ export class App {
     this.month.set(date.slice(0, 7));
     await this.diary.load(date);
   }
+  openResult(date: string) {
+    this.tools.set('diary');
+    void this.select(date);
+  }
+  setMonth(value: string) {
+    if (validCivilDate(value + '-01')) this.month.set(value);
+  }
   moveMonth(offset: number) {
     const date = new Date(`${this.month()}-01T12:00:00Z`);
     date.setUTCMonth(date.getUTCMonth() + offset);
@@ -135,7 +158,7 @@ export class App {
     );
   }
   goToday() {
-    this.today.set(todayInKolkata());
+    this.today.set(todayInZone(this.preferences.value().timezone));
     void this.select(this.today());
   }
   async retry() {
@@ -149,7 +172,7 @@ export class App {
     const date = this.selected();
     if (
       !window.confirm(
-        'Move this entry to encrypted trash and discard unsaved text? The trash browser will be added in Phase 3.',
+        'Move this entry to encrypted trash and discard unsaved text? You can restore it from Trash.',
       )
     )
       return;
@@ -158,7 +181,7 @@ export class App {
   useSavedVersion() {
     const date = this.selected();
     if (window.confirm('Discard your draft and use the currently saved version?'))
-      void this.diary.useSavedVersion(date);
+      void this.vault.perform(() => this.diary.useSavedVersion(date));
   }
   async overwriteWithDraft() {
     const date = this.selected();

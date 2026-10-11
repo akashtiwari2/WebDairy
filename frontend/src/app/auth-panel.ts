@@ -1,5 +1,6 @@
 import { Component, input, signal, inject, effect } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { PreferencesService, Preferences } from './preferences.service';
 import { VaultService } from './vault.service';
 @Component({
   selector: 'app-auth-panel',
@@ -68,6 +69,12 @@ import { VaultService } from './vault.service';
   ],
 })
 export class AuthPanel {
+  readonly preferences = inject(PreferencesService);
+  setPreference(key: keyof Preferences, value: any) {
+    void this.v.perform(async () =>
+      this.preferences.set({ ...this.preferences.value(), [key]: value }),
+    );
+  }
   readonly v = inject(VaultService);
   readonly settings = input(false);
   readonly recovering = signal(false);

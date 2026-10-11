@@ -23,3 +23,15 @@ Unit checks separately cover lost-success responses, current-text preservation,
 revision conflict choice, published AES-GCM known-answer and cross-implementation
 Argon2id compatibility. PostgreSQL integration checks cover transactions, session
 expiry/revocation, throttling, opaque storage and migration rollback with race detection.
+
+Phase 3 additionally checks local search/date filters without network queries,
+occupied-date trash comparison and alternate restore, permanent purge, title-only
+Today, timezone/theme, encrypted file downloads and retained trash. It confirms
+invalid-file/wrong-key preservation, emergency export during an outage, safety-storage
+failure blocking replacement, stale-safety rejection, lost-success restore
+retry and pre-replacement copy retention. It then **recreates only its uniquely
+named disposable database twice** and restores from the downloaded file with
+passphrase and recovery independently, choosing new local logins and comparing
+all restored dates/text/trash/preferences. Temporary downloads are removed on exit.
+SQL integration injects a failure after replacement starts and verifies full rollback;
+it also checks stage binding/expiry, new epochs and tombstone resurrection protection.

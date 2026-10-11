@@ -75,8 +75,10 @@ func TestPrivateWorkflow(t *testing.T) {
 		}
 		csrf = p.CSRF
 	}
-	if got := request("GET", "/api/entries", nil, false).Code; got != 401 {
-		t.Fatalf("unauthenticated %d", got)
+	for _, path := range []string{"/api/entries", "/api/backup/snapshot", "/api/backup/history"} {
+		if got := request("GET", path, nil, false).Code; got != 401 {
+			t.Fatalf("unauthenticated %s: %d", path, got)
+		}
 	}
 	decodeProfile(request("GET", "/api/auth/session", nil, true))
 	if c := cookies[csrfCookie]; !c.HttpOnly || c.SameSite != http.SameSiteStrictMode {
@@ -110,12 +112,31 @@ func TestPrivateWorkflow(t *testing.T) {
 	if got := request("GET", "/api/vault", nil, true).Code; got != 200 {
 		t.Fatalf("vault %d", got)
 	}
+	// An initialized diary cannot bypass authentication through bootstrap restore.
+	savedSession := cookies[sessionCookie]
+	delete(cookies, sessionCookie)
+	for _, path := range []string{"/api/restore/stage", "/api/restore/commit"} {
+		if got := request("POST", path, map[string]string{}, true).Code; got != 401 {
+			t.Fatalf("restore auth bypass %s: %d", path, got)
+		}
+	}
+	cookies[sessionCookie] = savedSession
 	id := "11111111-1111-4111-8111-111111111111"
 	block, _ := aes.NewCipher(make([]byte, 32))
 	gcm, _ := cipher.NewGCM(block)
 	nonce := make([]byte, 12)
 	encrypted := gcm.Seal(nil, nonce, []byte(`{"date":"2030-10-20","title":"SYNTHETIC SECRET","body":"synthetic body"}`), []byte("webdiary|entry|v1|"+envelope.VaultID+"|"+id))
-	w := private.Write{CryptoVersion: 1, Nonce: b64(12), Ciphertext: base64.StdEncoding.EncodeToString(encrypted), OperationID: "22222222-2222-4222-8222-222222222222"}
+	vEpoch, err := s.Vault(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := private.Write{Epoch: vEpoch.Epoch, CryptoVersion: 1, Nonce: b64(12), Ciphertext: base64.StdEncoding.EncodeToString(encrypted), OperationID: "22222222-2222-4222-8222-222222222222"}
+	staleEpoch := w
+	staleEpoch.Epoch = "00000000-0000-0000-0000-000000000001"
+	staleResponse := request("PUT", "/api/entries/"+id, staleEpoch, true)
+	if staleResponse.Code != 409 || !strings.Contains(staleResponse.Body.String(), "vault_changed") {
+		t.Fatal("stale epoch accepted")
+	}
 	put := request("PUT", "/api/entries/"+id, w, true)
 	if put.Code != 200 {
 		t.Fatalf("save %d %s", put.Code, put.Body)
@@ -136,8 +157,8 @@ func TestPrivateWorkflow(t *testing.T) {
 	if got := request("PUT", "/api/entries/2030-10-20", map[string]string{"title": "plaintext"}, true).Code; got != 400 {
 		t.Fatal("plaintext API enabled")
 	}
-	if got := request("DELETE", "/api/entries/"+id, nil, true).Code; got != 404 && got != 405 {
-		t.Fatal("delete exposed")
+	if got := request("DELETE", "/api/entries/"+id, nil, true).Code; got != 400 {
+		t.Fatal("delete without a revision was accepted")
 	}
 	listing := request("GET", "/api/entries", nil, true)
 	if listing.Code != 200 || strings.Contains(listing.Body.String(), "2030-10-20") || strings.Contains(listing.Body.String(), "SYNTHETIC SECRET") {

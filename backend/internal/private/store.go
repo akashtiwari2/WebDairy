@@ -40,8 +40,10 @@ type Envelope struct {
 	Recovery      RecoveryEnvelope `json:"recovery"`
 }
 type Vault struct {
-	Envelope Envelope `json:"envelope"`
-	Revision int64    `json:"revision"`
+	Epoch      string   `json:"vault_epoch"`
+	Generation int64    `json:"generation"`
+	Envelope   Envelope `json:"envelope"`
+	Revision   int64    `json:"revision"`
 }
 type Record struct {
 	ID            string `json:"id"`
@@ -52,6 +54,7 @@ type Record struct {
 	Revision      int64  `json:"revision"`
 }
 type Write struct {
+	Epoch            string `json:"vault_epoch"`
 	CryptoVersion    int    `json:"crypto_version"`
 	Nonce            string `json:"nonce"`
 	Ciphertext       string `json:"ciphertext"`
@@ -74,7 +77,7 @@ func ValidEnvelope(e Envelope) bool {
 }
 func ValidWrite(w Write) bool {
 	ciphertext, e := base64.StdEncoding.Strict().DecodeString(w.Ciphertext)
-	return e == nil && len(ciphertext) >= 16 && len(ciphertext) <= 1500000 && w.CryptoVersion == 1 && exactBase64(w.Nonce, 12) && UUID.MatchString(w.OperationID) && w.ExpectedRevision >= 0 && w.ExpectedRevision <= 9007199254740990
+	return e == nil && len(ciphertext) >= 16 && len(ciphertext) <= 1500000 && w.CryptoVersion == 1 && UUID.MatchString(w.Epoch) && exactBase64(w.Nonce, 12) && UUID.MatchString(w.OperationID) && w.ExpectedRevision >= 0 && w.ExpectedRevision <= 9007199254740990
 }
 func (s *Store) Setup(ctx context.Context, password string, envelope Envelope) error {
 	hash, err := PasswordHash(password)
@@ -111,7 +114,7 @@ func (s *Store) Setup(ctx context.Context, password string, envelope Envelope) e
 func (s *Store) Vault(ctx context.Context) (Vault, error) {
 	var vault Vault
 	var encoded []byte
-	err := s.Pool.QueryRow(ctx, `SELECT key_envelope,revision FROM vaults WHERE id=(SELECT vault_id FROM owner_auth WHERE id=true)`).Scan(&encoded, &vault.Revision)
+	err := s.Pool.QueryRow(ctx, `SELECT key_envelope,revision,vault_epoch::text,generation FROM vaults WHERE id=(SELECT vault_id FROM owner_auth WHERE id=true)`).Scan(&encoded, &vault.Revision, &vault.Epoch, &vault.Generation)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return vault, ErrNotFound
 	}
@@ -132,6 +135,9 @@ func (s *Store) SetEnvelope(ctx context.Context, envelope Envelope, revision int
 		return Vault{}, err
 	}
 	defer tx.Rollback(context.Background())
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(873125902)`); err != nil {
+		return Vault{}, err
+	}
 	result, err := tx.Exec(ctx, `INSERT INTO vault_operations(operation_id,vault_id,request_hash) VALUES($1::uuid,$2::uuid,$3) ON CONFLICT DO NOTHING`, operation, envelope.VaultID, hash[:])
 	if err != nil {
 		return Vault{}, err
@@ -149,9 +155,9 @@ func (s *Store) SetEnvelope(ctx context.Context, envelope Envelope, revision int
 		if !bytes.Equal(hash[:], original) || current != next {
 			return Vault{}, ErrConflict
 		}
-		return Vault{Envelope: envelope, Revision: next}, nil
+		return readVault(ctx, tx)
 	}
-	err = tx.QueryRow(ctx, `UPDATE vaults SET key_envelope=$1::jsonb,revision=revision+1 WHERE id=$2::uuid AND revision=$3 AND id=(SELECT vault_id FROM owner_auth WHERE id=true) RETURNING revision`, encoded, envelope.VaultID, revision).Scan(&next)
+	err = tx.QueryRow(ctx, `UPDATE vaults SET key_envelope=$1::jsonb,revision=revision+1,generation=generation+1 WHERE id=$2::uuid AND revision=$3 AND id=(SELECT vault_id FROM owner_auth WHERE id=true) RETURNING revision`, encoded, envelope.VaultID, revision).Scan(&next)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Vault{}, ErrConflict
 	}
@@ -164,7 +170,7 @@ func (s *Store) SetEnvelope(ctx context.Context, envelope Envelope, revision int
 	if err = tx.Commit(ctx); err != nil {
 		return Vault{}, err
 	}
-	return Vault{Envelope: envelope, Revision: next}, nil
+	return s.Vault(ctx)
 }
 func jsonNumber(value int64) string { b, _ := json.Marshal(value); return string(b) }
 func scanRecord(row pgx.Row) (Record, error) {
@@ -214,9 +220,22 @@ func (s *Store) Save(ctx context.Context, id string, write Write) (Record, error
 		return Record{}, err
 	}
 	defer tx.Rollback(context.Background())
-	var vaultID string
-	if err = tx.QueryRow(ctx, `SELECT vault_id::text FROM owner_auth WHERE id=true`).Scan(&vaultID); err != nil {
+	if _, err = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(873125902)`); err != nil {
 		return Record{}, err
+	}
+	var vaultID, epoch string
+	if err = tx.QueryRow(ctx, `SELECT v.id::text,v.vault_epoch::text FROM vaults v JOIN owner_auth o ON o.vault_id=v.id WHERE o.id=true`).Scan(&vaultID, &epoch); err != nil {
+		return Record{}, err
+	}
+	if write.Epoch != epoch {
+		return Record{}, ErrVaultChanged
+	}
+	var tombstoned bool
+	if err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM entry_tombstones WHERE id=$1::uuid)`, id).Scan(&tombstoned); err != nil {
+		return Record{}, err
+	}
+	if tombstoned {
+		return Record{}, &RecordConflict{}
 	}
 	encoded, _ := json.Marshal(struct {
 		ID    string
@@ -267,6 +286,9 @@ func (s *Store) Save(ctx context.Context, id string, write Write) (Record, error
 		return Record{}, err
 	}
 	if _, err = tx.Exec(ctx, `UPDATE private_operations SET result_revision=$2 WHERE operation_id=$1::uuid`, write.OperationID, record.Revision); err != nil {
+		return Record{}, err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE vaults SET generation=generation+1 WHERE id=$1::uuid`, vaultID); err != nil {
 		return Record{}, err
 	}
 	if err = tx.Commit(ctx); err != nil {

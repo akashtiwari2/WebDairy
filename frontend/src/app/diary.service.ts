@@ -11,11 +11,12 @@ import {
   decryptJSON,
   validatePayload,
   uuid,
+  validCivilDate,
 } from './vault-crypto';
 export { validCivilDate } from './vault-crypto';
 export type SaveStatus =
   'loading' | 'blank' | 'unsaved' | 'saving' | 'saved' | 'failed' | 'conflict' | 'deleting';
-interface Entry extends Payload {
+export interface Entry extends Payload {
   id: string;
   revision: number;
 }
@@ -23,6 +24,7 @@ export interface EntryState extends Entry {
   savedTitle: string;
   savedBody: string;
   savedTrashed: boolean;
+  savedTrashedAt?: string | null;
   loaded: boolean;
   status: SaveStatus;
   error: string;
@@ -34,6 +36,7 @@ interface Attempt {
   payload: Payload;
 }
 interface Draft {
+  vault_epoch?: string;
   state: EntryState;
   attempt?: Attempt;
 }
@@ -47,6 +50,7 @@ function empty(date: string): EntryState {
     created_at: now,
     updated_at: now,
     trashed: false,
+    trashed_at: null,
     revision: 0,
     savedTitle: '',
     savedBody: '',
@@ -58,7 +62,10 @@ function empty(date: string): EntryState {
   };
 }
 const dirty = (s: EntryState) =>
-  s.title !== s.savedTitle || s.body !== s.savedBody || s.trashed !== s.savedTrashed;
+  s.title !== s.savedTitle ||
+  s.body !== s.savedBody ||
+  s.trashed !== s.savedTrashed ||
+  (s.trashed_at ?? null) !== (s.savedTrashedAt ?? null);
 const payload = (s: EntryState): Payload => ({
   date: s.date,
   title: s.title,
@@ -66,11 +73,17 @@ const payload = (s: EntryState): Payload => ({
   created_at: s.created_at,
   updated_at: s.updated_at,
   trashed: s.trashed,
+  trashed_at: s.trashed_at ?? null,
 });
 @Injectable({ providedIn: 'root' })
 export class DiaryService {
   readonly vault = inject(VaultService);
   private readonly auth = inject(AuthService);
+  readonly trash = signal(new Map<string, EntryState>());
+  private purges = new Map<
+    string,
+    { vault_epoch: string; expected_revision: number; operation_id: string }
+  >();
   readonly states = signal(new Map<string, EntryState>());
   readonly dates = computed(
     () =>
@@ -110,7 +123,9 @@ export class DiaryService {
     this.states.set(states);
   }
   async initialize() {
-    const states = new Map<string, EntryState>();
+    const states = new Map<string, EntryState>(),
+      trash = new Map<string, EntryState>(),
+      seen = new Set<string>();
     let cursor = '',
       count = 0;
     do {
@@ -126,18 +141,23 @@ export class DiaryService {
       for (const record of page.records) {
         if (++count > 100000) throw new Error('Vault is too large to open in this browser.');
         const entry = await this.decrypt(record);
-        if (states.has(entry.date))
+        if (seen.has(entry.id)) throw new Error('Duplicate record ID. Data preserved.');
+        seen.add(entry.id);
+        if (!entry.trashed && states.has(entry.date))
           throw new Error('Duplicate diary date. Vault was not opened; data was preserved.');
-        states.set(entry.date, {
+        const loaded: EntryState = {
           ...entry,
           savedTitle: entry.title,
           savedBody: entry.body,
           savedTrashed: entry.trashed,
+          savedTrashedAt: entry.trashed_at ?? null,
           loaded: true,
           status: entry.trashed ? 'blank' : 'saved',
           error: '',
           deleteRequested: false,
-        });
+        };
+        if (entry.trashed) trash.set(entry.id, loaded);
+        else states.set(entry.date, loaded);
       }
       cursor = page.next_cursor;
     } while (cursor);
@@ -169,6 +189,12 @@ export class DiaryService {
       if (existing && existing.id !== state.id)
         throw new Error('Conflicting record for recovered draft. Data preserved.');
       if (state.conflict) validatePayload(state.conflict);
+      const staleEpoch =
+        draft.vault_epoch !== undefined && draft.vault_epoch !== this.vault.vault!.vault_epoch;
+      if (staleEpoch) {
+        state.status = 'conflict';
+        state.conflict = existing ?? trash.get(state.id) ?? null;
+      }
       if (draft.attempt) {
         validatePayload(draft.attempt.payload);
         if (
@@ -187,8 +213,13 @@ export class DiaryService {
         );
         if (JSON.stringify(decoded) !== JSON.stringify(draft.attempt.payload))
           throw new Error('Pending save payload mismatch.');
-        attempts.set(state.date, draft.attempt);
+        draft.attempt.write.vault_epoch ??= this.vault.vault!.vault_epoch;
+        if (staleEpoch || draft.attempt.write.vault_epoch !== this.vault.vault!.vault_epoch) {
+          state.status = 'conflict';
+          state.conflict = existing ?? trash.get(state.id) ?? null;
+        } else attempts.set(state.date, draft.attempt);
       }
+      trash.delete(state.id);
       states.set(state.date, {
         ...state,
         loaded: true,
@@ -197,6 +228,7 @@ export class DiaryService {
       });
     }
     this.states.set(states);
+    this.trash.set(trash);
     this.attempts = attempts;
     this.paused = false;
     this.indexError.set('');
@@ -242,6 +274,7 @@ export class DiaryService {
       title,
       body,
       trashed: false,
+      trashed_at: null,
       updated_at: new Date().toISOString(),
       status: current.status === 'conflict' ? 'conflict' : 'unsaved',
       error: current.status === 'conflict' ? current.error : '',
@@ -278,7 +311,7 @@ export class DiaryService {
         }
         const sealed = await encryptJSON(
           this.vault.key,
-          { state, attempt } satisfies Draft,
+          { state, attempt, vault_epoch: this.vault.vault!.vault_epoch } satisfies Draft,
           context('draft', this.vault.id, state.id),
         );
         await this.drafts.put({
@@ -327,6 +360,7 @@ export class DiaryService {
             payload: data,
             write: {
               crypto_version: 1,
+              vault_epoch: this.vault.vault!.vault_epoch,
               expected_revision: state.revision,
               operation_id: crypto.randomUUID(),
               ...(await encryptJSON(
@@ -352,6 +386,11 @@ export class DiaryService {
           JSON.stringify(payload({ ...state, ...acknowledged })) !== JSON.stringify(attempt.payload)
         )
           throw new Error('Save acknowledgement mismatch. Draft preserved.');
+        if (!acknowledged.trashed) {
+          const trash = new Map(this.trash());
+          trash.delete(acknowledged.id);
+          this.trash.set(trash);
+        }
         this.attempts.delete(date);
         this.retries.delete(date);
         const latest = this.state(date);
@@ -360,6 +399,7 @@ export class DiaryService {
           savedTitle: acknowledged.title,
           savedBody: acknowledged.body,
           savedTrashed: acknowledged.trashed,
+          savedTrashedAt: acknowledged.trashed_at ?? null,
           deleteRequested: latest.trashed && !acknowledged.trashed,
         });
         if (!dirty(this.state(date)))
@@ -369,12 +409,27 @@ export class DiaryService {
             deleteRequested: false,
           });
         await this.stash(date); // Removes only a draft matching the acknowledged current text.
+        if (acknowledged.trashed && !dirty(this.state(date))) {
+          const trash = new Map(this.trash());
+          trash.set(state.id, this.state(date));
+          this.trash.set(trash);
+          const states = new Map(this.states());
+          states.delete(date);
+          this.states.set(states);
+          return;
+        }
       }
     } catch (e) {
-      if (e instanceof APIError && e.status === 409) {
+      if (e instanceof APIError && e.status === 409 && e.data?.error === 'vault_changed') {
+        this.set(date, {
+          status: 'failed',
+          error:
+            'Vault was replaced. Lock and unlock to compare your recovered draft with the restored diary.',
+        });
+      } else if (e instanceof APIError && e.status === 409) {
         try {
           const current = e.data?.current ? await this.decrypt(e.data.current) : null;
-          if (current && (current.id !== this.state(date).id || current.date !== date))
+          if (current && current.id !== this.state(date).id)
             throw new Error('Conflict record identity mismatch. Draft preserved.');
           this.attempts.delete(date);
           this.set(date, {
@@ -429,6 +484,7 @@ export class DiaryService {
     }
     this.set(date, {
       trashed: true,
+      trashed_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       deleteRequested: true,
       status: 'unsaved',
@@ -440,35 +496,148 @@ export class DiaryService {
   async useSavedVersion(date: string) {
     const state = this.state(date);
     if (state.status !== 'conflict') return;
-    const current = state.conflict ?? { ...empty(date), id: state.id, loaded: true };
+    const current = state.conflict ?? { ...empty(date), loaded: true };
     this.attempts.delete(date);
+    if (current.trashed) {
+      const trash = new Map(this.trash());
+      trash.set(current.id, {
+        ...state,
+        ...current,
+        savedTitle: current.title,
+        savedBody: current.body,
+        savedTrashed: true,
+        savedTrashedAt: current.trashed_at ?? null,
+        status: 'blank',
+        error: '',
+        conflict: undefined,
+        deleteRequested: false,
+      });
+      this.trash.set(trash);
+      const states = new Map(this.states());
+      states.delete(date);
+      this.states.set(states);
+      await this.drafts.remove(this.vault.id, state.id);
+      return;
+    }
+    if (current.date !== date)
+      throw new Error('The saved entry moved to another date. Lock and unlock to reload it.');
     this.set(date, {
       ...current,
       savedTitle: current.title,
       savedBody: current.body,
       savedTrashed: current.trashed,
+      savedTrashedAt: current.trashed_at ?? null,
       conflict: undefined,
       deleteRequested: false,
       status: current.revision && !current.trashed ? 'saved' : 'blank',
       error: '',
     });
     await this.stash(date);
+    if (current.id !== state.id) await this.drafts.remove(this.vault.id, state.id);
   }
   async overwriteWithDraft(date: string) {
     const state = this.state(date);
     if (state.status !== 'conflict') return;
     this.attempts.delete(date);
     this.set(date, {
+      ...(state.conflict ? {} : { id: crypto.randomUUID() }),
       revision: state.conflict?.revision ?? 0,
       savedTitle: state.conflict?.title ?? '',
       savedBody: state.conflict?.body ?? '',
       savedTrashed: state.conflict?.trashed ?? false,
+      savedTrashedAt: state.conflict?.trashed_at ?? null,
       conflict: undefined,
       status: 'unsaved',
       error: '',
     });
     await this.stash(date);
+    if (this.state(date).id !== state.id) await this.drafts.remove(this.vault.id, state.id);
     await this.save(date);
+  }
+  async saveAll() {
+    await Promise.all([...this.flights.values()]);
+    for (const date of [...this.states().keys()]) await this.save(date);
+    if (
+      [...this.states().values()].some(
+        (s) => dirty(s) || s.status === 'conflict' || this.attempts.has(s.date),
+      )
+    )
+      throw new Error(
+        'Save or resolve all drafts before exporting a database backup or replacing this diary. You can export unsaved text separately.',
+      );
+  }
+  async currentRecords(): Promise<OpaqueRecord[]> {
+    const records: OpaqueRecord[] = [];
+    const all = new Map(
+      [...this.trash().values(), ...this.states().values()].map((s) => [s.id, s]),
+    );
+    for (const state of all.values()) {
+      if (!state.trashed && !state.title.trim() && !state.body.trim() && state.revision === 0)
+        continue;
+      const sealed = await encryptJSON(
+        this.vault.key,
+        validatePayload(payload(state)),
+        context('entry', this.vault.id, state.id),
+      );
+      records.push({
+        id: state.id,
+        vault_id: this.vault.id,
+        crypto_version: 1,
+        revision: Math.max(1, state.revision),
+        ...sealed,
+      });
+    }
+    return records;
+  }
+  async restoreTrash(id: string, date: string) {
+    if (this.paused || !validCivilDate(date)) throw new Error('Unlock and choose a valid date.');
+    const source = this.trash().get(id);
+    if (!source) throw new Error('Trash entry is no longer available.');
+    await Promise.all(this.flights.values());
+    const current = this.states().get(date);
+    if (current && (current.revision > 0 || current.title.trim() || current.body.trim()))
+      throw new Error(
+        'This date already has an entry or draft. Compare it and choose another date.',
+      );
+    this.set(date, {
+      ...source,
+      date,
+      trashed: false,
+      trashed_at: null,
+      updated_at: new Date().toISOString(),
+      status: 'unsaved',
+      deleteRequested: false,
+      error: '',
+    });
+    await this.stash(date);
+    const trash = new Map(this.trash());
+    trash.delete(id);
+    this.trash.set(trash);
+    await this.save(date);
+    if (this.state(date).status !== 'saved')
+      throw new Error(
+        'Trash restore is pending. Your text is in the editor; retry or resolve the conflict there.',
+      );
+  }
+  async purgeTrash(id: string) {
+    if (this.paused) throw new Error('Unlock first.');
+    const entry = this.trash().get(id);
+    if (!entry) throw new Error('Trash entry unavailable.');
+    let request = this.purges.get(id);
+    if (!request) {
+      request = {
+        vault_epoch: this.vault.vault!.vault_epoch,
+        expected_revision: entry.revision,
+        operation_id: crypto.randomUUID(),
+      };
+      this.purges.set(id, request);
+    }
+    await this.auth.request(`/api/entries/${id}`, 'DELETE', request);
+    await this.drafts.remove(this.vault.id, id);
+    this.purges.delete(id);
+    const trash = new Map(this.trash());
+    trash.delete(id);
+    this.trash.set(trash);
   }
   async flushAndClear() {
     this.paused = true;
@@ -488,6 +657,8 @@ export class DiaryService {
     for (const timer of this.timers.values()) clearTimeout(timer);
     this.timers.clear();
     this.states.set(new Map());
+    this.trash.set(new Map());
+    this.purges.clear();
     this.attempts.clear();
     this.queues.clear();
     this.retries.clear();

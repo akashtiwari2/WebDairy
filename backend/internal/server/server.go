@@ -125,16 +125,17 @@ func invalid(c echo.Context) error {
 	return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid_request"})
 }
 
-func decode(c echo.Context, target any) error {
+func decode(c echo.Context, target any) error { return decodeLimit(c, target, maxRequest) }
+func decodeLimit(c echo.Context, target any, limit int) error {
 	mediaType, _, err := mime.ParseMediaType(c.Request().Header.Get("Content-Type"))
 	if err != nil || mediaType != "application/json" {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid_request")
 	}
-	data, err := io.ReadAll(io.LimitReader(c.Request().Body, maxRequest+1))
+	data, err := io.ReadAll(io.LimitReader(c.Request().Body, int64(limit)+1))
 	if err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "invalid_request")
 	}
-	if len(data) > maxRequest {
+	if len(data) > limit {
 		return echo.NewHTTPError(http.StatusRequestEntityTooLarge, "request_too_large")
 	}
 	decoder := json.NewDecoder(strings.NewReader(string(data)))

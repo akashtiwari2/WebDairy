@@ -1,4 +1,5 @@
 import { Injectable, inject, signal } from '@angular/core';
+import { backupKey } from './backup-format';
 import { AuthService, APIError } from './auth.service';
 import {
   Envelope,
@@ -22,6 +23,7 @@ export class VaultService {
   readonly recoverySecret = signal('');
   readonly recoveryPurpose = signal<'setup' | 'rotate' | ''>('');
   readonly idleMinutes = signal(5);
+  readonly clearListeners = new Set<() => void>();
   onOpen: () => Promise<void> = async () => {};
   onLock: () => Promise<void> = async () => {};
   onFailedOpen: () => void = () => {};
@@ -32,6 +34,14 @@ export class VaultService {
   private pendingRecovery?: Envelope['recovery'];
   private lastActivity = Date.now();
   vault?: Vault;
+  async backupKey(salt: string) {
+    if (!this.raw) throw new Error('Unlock first.');
+    return backupKey(this.raw, salt, this.id);
+  }
+  async adopt(raw: Uint8Array<ArrayBuffer>) {
+    this.vault = await this.auth.request<Vault>('/api/vault');
+    await this.openRaw(raw);
+  }
   get key(): CryptoKey {
     if (!this.cryptoKey) throw new Error('Vault locked.');
     return this.cryptoKey;
@@ -288,6 +298,7 @@ export class VaultService {
   }
   async lock() {
     if (this.state() === 'unlocked') await this.onLock();
+    for (const clear of this.clearListeners) clear();
     this.raw?.fill(0);
     this.raw = undefined;
     this.cryptoKey = undefined;

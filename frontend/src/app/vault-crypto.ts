@@ -21,6 +21,8 @@ export interface Envelope {
 export interface Vault {
   envelope: Envelope;
   revision: number;
+  vault_epoch: string;
+  generation: number;
 }
 export interface Payload {
   date: string;
@@ -29,6 +31,7 @@ export interface Payload {
   created_at: string;
   updated_at: string;
   trashed: boolean;
+  trashed_at?: string | null;
 }
 export interface OpaqueRecord extends Sealed {
   id: string;
@@ -37,6 +40,7 @@ export interface OpaqueRecord extends Sealed {
   revision: number;
 }
 export interface OpaqueWrite extends Sealed {
+  vault_epoch: string;
   crypto_version: 1;
   expected_revision: number;
   operation_id: string;
@@ -49,8 +53,13 @@ export function base64(bytes: Uint8Array): string {
   for (const byte of bytes) result += String.fromCharCode(byte);
   return btoa(result);
 }
-export function unbase64(text: string, length?: number): Uint8Array<ArrayBuffer> {
-  if (typeof text !== 'string' || text.length > 2000000) throw new Error('Invalid encrypted data.');
+export function unbase64(
+  text: string,
+  length?: number,
+  maxEncoded = 2000000,
+): Uint8Array<ArrayBuffer> {
+  if (typeof text !== 'string' || text.length > maxEncoded)
+    throw new Error('Invalid encrypted data.');
   const bytes = Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
   if (base64(bytes) !== text || (length !== undefined && bytes.length !== length))
     throw new Error('Invalid encrypted data.');
@@ -70,6 +79,8 @@ export function validatePayload(value: Payload): Payload {
     typeof value.body !== 'string' ||
     encoder.encode(value.body).length > 1048576 ||
     typeof value.trashed !== 'boolean' ||
+    (value.trashed_at != null &&
+      (typeof value.trashed_at !== 'string' || !Number.isFinite(Date.parse(value.trashed_at)))) ||
     !/^\d{4}-\d\d-\d\dT/.test(value.created_at) ||
     !Number.isFinite(Date.parse(value.created_at)) ||
     !Number.isFinite(Date.parse(value.updated_at))
@@ -122,6 +133,7 @@ export async function open(
   key: CryptoKey,
   data: Sealed,
   context: string,
+  maxEncoded = 2000000,
 ): Promise<Uint8Array<ArrayBuffer>> {
   return new Uint8Array(
     await crypto.subtle.decrypt(
@@ -132,7 +144,7 @@ export async function open(
         tagLength: 128,
       },
       key,
-      unbase64(data.ciphertext),
+      unbase64(data.ciphertext, undefined, maxEncoded),
     ),
   );
 }
@@ -237,8 +249,13 @@ export const context = (kind: 'entry' | 'draft', vault: string, id: string) =>
 export async function encryptJSON(key: CryptoKey, value: unknown, aad: string) {
   return seal(key, encoder.encode(JSON.stringify(value)), aad);
 }
-export async function decryptJSON<T>(key: CryptoKey, value: Sealed, aad: string): Promise<T> {
-  const bytes = await open(key, value, aad);
+export async function decryptJSON<T>(
+  key: CryptoKey,
+  value: Sealed,
+  aad: string,
+  maxEncoded = 2000000,
+): Promise<T> {
+  const bytes = await open(key, value, aad, maxEncoded);
   try {
     return JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
   } catch {

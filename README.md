@@ -4,9 +4,9 @@ A local personal diary built with Angular, Go Echo and PostgreSQL, following the
 owner-supplied `Diary_App_Detailed_Plan.pdf`. The PDF describes planned features;
 this repository's roadmap records what is actually implemented.
 
-## Current milestone: Phase 2 private vault
+## Current milestone: Phase 3 local release
 
-- Calendar/editor for past, present and future dates; Today uses Asia/Kolkata.
+- Calendar/editor for past, present and future dates; configurable timezone (Asia/Kolkata default), month picker and collapsible calendar.
 - Separate login password and vault passphrase; Argon2id password hashing,
   HttpOnly sessions, expiry, login throttling, Host/Origin and CSRF checks.
 - Browser AES-256-GCM encryption, random vault key, pinned Argon2id wrapping,
@@ -16,9 +16,16 @@ this repository's roadmap records what is actually implemented.
   retries and explicit comparison before resolving a conflict.
 - Encrypted IndexedDB pending drafts, recovery on unlock, manual/five-minute
   inactivity lock, and one editing tab per browser origin using Web Locks.
-- Encrypted deletion state. Trash browsing, search and backup/restore are Phase 3.
+- Browser-only title/body search with date filters and excerpts.
+- Trash comparison/restore to an empty date, confirmed permanent deletion and
+  confirmed expired-trash cleanup (30 days by default).
+- Light/dark/system theme, timezone and trash-period settings.
+- Portable encrypted .diary exports, verified import preview, current-diary safety
+  backup and atomic replacement; independent passphrase/recovery-key restoration.
+- Last three pre-replacement backups retained in PostgreSQL, with encrypted browser
+  copies and separate file downloads.
 
-**Use sample data until encrypted export/restore is implemented and rehearsed.**
+Clean-database restore is rehearsed automatically with both backup secrets.
 This is development software, not a security-audited release. The development
 Docker database uses trust authentication and is unsuitable for personal data.
 
@@ -39,7 +46,7 @@ bash scripts/dev.sh
 ```
 
 Startup checks ports, starts the labelled synthetic database, applies numbered
-migrations 1–5, then starts Go on loopback 8080 and Angular on loopback 4200 with
+migrations 1–6, then starts Go on loopback 8080 and Angular on loopback 4200 with
 the same-origin `/api` proxy. Ctrl+C stops its app children; PostgreSQL stays up.
 
 On the first visit, create two different passwords, copy the recovery key offline,
@@ -48,7 +55,8 @@ locally; do not send them in chat or commit them to Git.
 
 ```bash
 bash scripts/check.sh             # Go tests/vet, Angular tests, production build
-bash scripts/test-integration.sh  # Real PostgreSQL and race detection, disposable DB
+bash scripts/test-integration.sh  # Real PostgreSQL, restore rollback, race detection
+bash scripts/test-browser.sh      # Chromium, disposable DB, both restore secrets
 ```
 
 See [local Windows/Mac setup](docs/setup.md), [API](docs/api.md),
@@ -69,11 +77,13 @@ restart, log in/unlock and review recovered drafts before saving them.
 
 Wait for Saved before closing. Browser termination, storage eviction, disk failure
 or loss of the most recent keystroke before encryption can still lose data.
-Browser drafts are not backups. The Docker volume and cloud publication are not
-backups either; no cross-machine recovery is promised yet.
+Browser drafts are not backups. Keep an exported .diary file outside browser
+storage, and its passphrase or recovery key separately. The Docker volume and cloud
+publication are not backups. See [backup/restore steps](docs/backup.md).
 
 Clearing all text does not silently delete a saved entry. Use Delete entry to
-mark its content as encrypted trash. Revisiting an untouched empty date creates
+move its content to encrypted trash. Writing again on that date creates a new
+record and preserves the old trash entry. Revisiting an untouched empty date creates
 no row. Limits: 200 Unicode title characters, 1 MiB UTF-8 body, 2 MiB JSON request.
 Diary dates, title/body, content timestamps and deletion state stay inside the
 ciphertext; the database still sees record IDs, revisions, sizes and write timing.
