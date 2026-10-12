@@ -100,3 +100,26 @@ Limits: 10,000 imported/exported records, 32 MiB serialized snapshot, 48 MiB enc
 file and 96 MiB staging HTTP body; ordinary requests retain the 2 MiB cap. Restore
 HTTP requests allow 60 seconds; others 10 seconds. Search queries and snippets never
 use an API route.
+
+## Optional Google and Drive APIs (Phase 4)
+
+- `GET /api/google/status`: configured/link/Drive/proof/flow state; never OAuth tokens.
+- `POST /api/google/start {purpose: login|link|drive}`: CSRF-protected PKCE authorization
+  URL. Linking requires the existing owner's session; Drive consent is separate.
+- `GET /api/google/callback`: one-use state/code callback; this alone permits a
+  cross-site top-level GET. All other Host/Origin/CSRF checks remain.
+- `POST /api/google/cancel`: cancel the pending local flow.
+- `POST /api/auth/offline-password {password}`: authenticated Google-only owner;
+  creates the first local password, never replaces an existing one without verification.
+- `GET /api/drive/backups`: app-data backup metadata for the authenticated owner or
+  verified fresh-device Google proof.
+- `GET /api/drive/backups/:id`: selected owned opaque archive, bounded to 48 MiB.
+- `POST /api/drive/upload {operation_id,archive,snapshot_at,keep}`: authenticated
+  owner, matching vault, immutable upload retry and verified-transfer retention (3–100).
+- `POST /api/drive/disconnect`: remove this device's stored credentials, retain files.
+
+Fresh `/api/auth/setup` and `/api/restore/commit` accept `use_google: true` only
+with a verified temporary Google proof; no new local login password is then needed.
+Explicit local mode preserves the supplied local password even if a proof exists.
+Existing-diary replacement keeps its login identity and still requires a safety copy.
+`GET /api/desktop` identifies an active embedded-UI instance; it exposes no data.

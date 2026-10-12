@@ -108,9 +108,10 @@ export class VaultService {
   }
   async beginSetup(login: string, pass: string) {
     if (
-      new TextEncoder().encode(login).length < 12 ||
-      new TextEncoder().encode(login).length > 1024 ||
-      login === pass
+      !this.auth.googleSetupReady() &&
+      (new TextEncoder().encode(login).length < 12 ||
+        new TextEncoder().encode(login).length > 1024 ||
+        login === pass)
     )
       throw new Error('Use different login and vault passwords, each at least 12 characters.');
     this.cancelRecovery();
@@ -150,7 +151,7 @@ export class VaultService {
           this.cancelRecovery();
           await this.start();
           throw new Error(
-            'Vault already exists. Log in with the password used during setup; do not create a replacement.',
+            'Vault already exists. Sign in with Google or the local password used during setup; do not create a replacement.',
           );
         }
         throw e;

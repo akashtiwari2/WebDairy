@@ -81,7 +81,7 @@ data only. Port conflicts are reported without stopping unrelated services.
 - Backend unavailable: keep the Go terminal running; inspect its current error.
 - Database not-ready: verify `pg_isready` and actual credentials with `psql`, then
   restart with `go run ./cmd/diary` from backend. Startup applies pending migrations
-  and exits with an error if migration fails. Health requires migration 6.
+  and exits with an error if migration fails. Health requires migration 7.
 - Password authentication failed: the PostgreSQL role/password in DATABASE_URL
   differs from your actual database account. This is separate from WebDairy login.
 - Login expired: unlock after logging in again; encrypted pending drafts stay local.
@@ -95,7 +95,7 @@ data only. Port conflicts are reported without stopping unrelated services.
 - Forgotten vault passphrase: after login, use the offline recovery key to set a
   new passphrase. Login reset cannot decrypt the diary.
 
-Migrations 1–6 apply transactionally once under an advisory lock; startup never
+Migrations 1–7 apply transactionally once under an advisory lock; startup never
 resets data. Version 5 adds login/session/revision support; version 6 adds restore
 staging, backup history, vault epochs and permanent-deletion tombstones. Existing Phase 1
 plaintext development rows are preserved separately, without automatic import.
@@ -114,3 +114,11 @@ Stop your own backend/frontend processes. From the cloned repository root run
 `npm ci`, then `npm start`. The migration preserves encrypted entries and old
 Phase 1 development data. Unlock, then use Search / Trash, Settings or Backups.
 See [backup and restore](backup.md) before switching machines.
+
+## Google and desktop builds
+
+Google integration is optional and disabled without a configured Desktop OAuth
+client. Follow [Google/Drive and desktop setup](google-setup.md). Startup applies
+migration 7 while preserving existing owners, password hashes and encrypted data.
+Existing owners link Google after local login; Google-only owners can add an
+optional offline login password. Configure Drive consent/schedule separately.

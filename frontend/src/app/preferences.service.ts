@@ -1,15 +1,20 @@
+import { BackupFrequency } from './backup-schedule';
 import { Injectable, signal } from '@angular/core';
 export interface Preferences {
   timezone: string;
   theme: 'light' | 'dark' | 'system';
   trash_days: number;
   show_streak?: boolean;
+  backup_frequency?: BackupFrequency;
+  backup_keep?: number;
 }
 export const defaults: Preferences = {
   timezone: 'Asia/Kolkata',
   theme: 'system',
   trash_days: 30,
   show_streak: true,
+  backup_frequency: 'manual',
+  backup_keep: 30,
 };
 export function validPreferences(value: Preferences): boolean {
   if (
@@ -18,6 +23,10 @@ export function validPreferences(value: Preferences): boolean {
     value.timezone.length > 100 ||
     !['light', 'dark', 'system'].includes(value.theme) ||
     (value.show_streak !== undefined && typeof value.show_streak !== 'boolean') ||
+    (value.backup_frequency !== undefined &&
+      !['manual', 'daily', 'weekly', 'monthly'].includes(value.backup_frequency)) ||
+    (value.backup_keep !== undefined &&
+      (!Number.isInteger(value.backup_keep) || value.backup_keep < 3 || value.backup_keep > 100)) ||
     !Number.isInteger(value.trash_days) ||
     value.trash_days < 1 ||
     value.trash_days > 365

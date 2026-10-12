@@ -58,7 +58,7 @@ export function backupHealth(
     .filter(
       (b) =>
         b.archive.vault_id === vaultId &&
-        ['export', 'before-restore'].includes(b.source) &&
+        ['export', 'before-restore', 'drive'].includes(b.source) &&
         Number.isFinite(Date.parse(b.saved_at)) &&
         Date.parse(b.saved_at) <= now,
     )

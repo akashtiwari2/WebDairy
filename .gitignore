@@ -11,3 +11,10 @@ frontend/.angular/
 *.exe
 *.backup
 *.diary
+release/
+backend/internal/desktop/assets/*
+!backend/internal/desktop/assets/README.txt
+backend/internal/desktop/migrations/*
+!backend/internal/desktop/migrations/README.txt
+client_secret*.json
+credentials*.json

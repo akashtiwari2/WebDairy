@@ -1,8 +1,8 @@
 # Implementation roadmap
 
 The uploaded PDF is a design proposal, not proof of implemented features.
-Implementation through Phase 3 is complete. The owner has also requested the
-Phase 4 login/backup/restore requirements below; these remain pending.
+Development implementations through Phase 4 are complete. Real Google-account
+validation and supported-device acceptance remain outstanding as noted below.
 
 1. **Phase 1 (implemented):** Angular/Echo/PostgreSQL calendar, sample CRUD,
    autosave, revisions and conflict comparison. Old plaintext development rows
@@ -16,7 +16,7 @@ Phase 4 login/backup/restore requirements below; these remain pending.
    authenticated import preview, safety backups and transactional replacement.
    Browser checks recreate a disposable database and restore past/Today/future,
    title-only and trashed entries with both passphrase and recovery key.
-4. **Phase 4 (next):** Windows launcher/embedded frontend, second-instance handling,
+4. **Phase 4 (implemented, development validation):** Windows launcher/embedded frontend, second-instance handling,
    desktop OAuth/protected tokens, immutable encrypted Google Drive backups,
    automatic retry/retention and packaged second-machine restore.
 5. **Phase 5:** accessibility, corruption/failure coverage, release hardening,
@@ -52,35 +52,40 @@ The owner prioritized these local features before Google OAuth/Drive packaging.
 - [x] Simplify autosave controls and validate encrypted recovery and responsive UI.
 
 Details and practical offline limits: [writing guide](writing.md).
-Next: Phase 4 Google login, protected desktop lifecycle, scheduled Drive backups
-and new-device restore discovery. Photos, reminders and simultaneous-device sync
+Next: live Google/OS acceptance, signing and release hardening in Phase 5. Photos, reminders and simultaneous-device sync
 are not included in this feature batch.
 
-## Phase 4: requested Google login and scheduled backups (pending)
+## Phase 4: Google login and scheduled backups (development implementation)
 
-These requirements are recorded for future implementation; Google login and
-scheduled Drive backups are not available in the current app.
+Google integration is enabled only after configuring a Desktop OAuth client.
+See [Google and desktop setup](google-setup.md). Mock-provider, disposable-database,
+production-browser and cross-compilation checks do not replace a live Google trial
+or Windows/macOS hardware acceptance.
 
-- [ ] Add **Sign in with Google** using desktop OAuth, verified Google identity
+- [x] Add **Sign in with Google** using desktop OAuth, verified Google identity
       and protected local sessions. Google login must work without creating a
       separate WebDairy login password. Plan migration for existing local owners.
-- [ ] Request Google Drive backup permission separately from sign-in; signing in
+- [x] Request Google Drive backup permission separately from sign-in; signing in
       alone must not require Drive access. Store OAuth tokens in protected OS storage.
-- [ ] Offer **Daily / Weekly / Monthly / Manual** backup frequency in settings.
-- [ ] Automatically upload immutable encrypted snapshots when the app is running,
+- [x] Offer **Daily / Weekly / Monthly / Manual** backup frequency in settings.
+- [x] Automatically upload immutable encrypted snapshots when the app is running,
       the vault is unlocked and backup is due. Catch up on a missed backup at the
       next suitable startup/unlock; do not promise backups while the app is closed.
-- [ ] Retry failed uploads and show backup progress, last successful backup time
+- [x] Retry failed uploads and show backup progress, last successful backup time
       and actionable errors. Configure backup retention without overwriting the
       last known good backup during a failed upload.
-- [ ] On a new device, after signing into the same Google account and granting
+- [x] On a new device, after signing into the same Google account and granting
       Drive access, discover available WebDairy backups and show **Restore** with
       backup dates. Handle no backup, revoked permission and offline states clearly.
-- [ ] Restore only after the user chooses a backup and provides that backup's
+- [x] Restore only after the user chooses a backup and provides that backup's
       vault passphrase or recovery key. Google sign-in alone cannot decrypt it.
-- [ ] If the device already has a diary, require explicit replacement confirmation
+- [x] If the device already has a diary, require explicit replacement confirmation
       and a verified safety backup. Reuse authenticated preview and transactional
       replacement so invalid backups or failed restores preserve the current diary.
+- [x] Add desktop launchers with embedded UI/migrations and second-instance reuse.
+      Cross-compile Windows amd64 and macOS arm64; verify the Linux packaged UI/CSP.
+- [x] Allow an optional offline login password for Google-only owners. Require an
+      explicit Google/local setup mode so a stale proof cannot discard a chosen password.
 - [ ] Validate sign-in, permission denial/revocation, scheduled backup/retry and
       new-device restore on supported Windows/Mac devices, including both unlock keys.
 
@@ -96,6 +101,5 @@ Expired trash is removed only after an explicit unlocked confirmation.
 No hosting, AI or multi-device synchronization is implied. No Google credentials
 are required for Phase 3.
 
-Validation is development evidence, not a security audit. Production least-privilege
-DB setup, desktop packaging, actual Windows/Mac hardware acceptance and automatic
-cloud backup remain outstanding. See security.md for practical limits.
+Validation is development evidence, not a security audit. Production least-privilege DB setup, signed installers, actual Windows/Mac hardware
+acceptance and live Google-account validation remain outstanding. See security.md for practical limits.

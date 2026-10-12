@@ -3,8 +3,9 @@ package database
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
-	"path/filepath"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,7 +16,10 @@ import (
 // Migrate applies each numbered SQL file once, under one transaction and lock.
 // The lock also prevents two launchers from racing to apply a migration.
 func Migrate(ctx context.Context, pool *pgxpool.Pool, directory string) error {
-	files, err := filepath.Glob(filepath.Join(directory, "*.sql"))
+	return MigrateFS(ctx, pool, os.DirFS(directory))
+}
+func MigrateFS(ctx context.Context, pool *pgxpool.Pool, source fs.FS) error {
+	files, err := fs.Glob(source, "*.sql")
 	if err != nil || len(files) == 0 {
 		return fmt.Errorf("migration directory has no readable SQL files")
 	}
@@ -32,7 +36,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, directory string) error {
 		return fmt.Errorf("cannot prepare migration tracking")
 	}
 	for _, file := range files {
-		name := filepath.Base(file)
+		name := path.Base(file)
 		version, err := strconv.Atoi(strings.SplitN(name, "_", 2)[0])
 		if err != nil || version < 1 {
 			return fmt.Errorf("invalid migration filename: %s", name)
@@ -44,7 +48,7 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool, directory string) error {
 		if applied {
 			continue
 		}
-		sql, err := os.ReadFile(file)
+		sql, err := fs.ReadFile(source, file)
 		if err != nil {
 			return fmt.Errorf("cannot read migration: %s", name)
 		}

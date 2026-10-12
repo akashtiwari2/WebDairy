@@ -4,7 +4,9 @@
 
 WebDairy uses a local Go backend and PostgreSQL. Internet access is not needed to
 log in, unlock, write, search or save while those local services are running.
-Google sign-in and Drive backup are future features and are not required today.
+Google sign-in/Drive are optional; a new Google session or Drive access needs
+internet. Existing local password login does not. Google-only owners can optionally
+add an offline login password in Settings.
 
 If the backend becomes unavailable after unlocking, keep writing in the open tab.
 Each edit is encrypted before its draft is stored in this browser's IndexedDB.
@@ -63,5 +65,7 @@ remain valid and use their timestamp for health reporting.
 
 Health describes browser copies, not verified Google Drive or off-device coverage.
 A download starting cannot prove you kept the file elsewhere. Keep a downloaded
-.diary file and its recovery key separately. Drive scheduling, Google OAuth and
-new-device backup discovery remain pending in Phase 4.
+.diary file and its recovery key separately. With Google/Drive configured, health also shows pending/recent/overdue/unavailable
+Drive state; overdue uses the chosen schedule (manual reminders use 24 hours).
+See [Google and desktop setup](google-setup.md) for scheduled uploads and new-device
+restore discovery.

@@ -206,6 +206,15 @@ func randomUUID() (string, error) {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[:4], b[4:6], b[6:8], b[8:10], b[10:]), nil
 }
 func (s *Store) CommitRestore(ctx context.Context, id, binding, password string) (Vault, error) {
+	return s.commitRestore(ctx, id, binding, password, nil)
+}
+func (s *Store) CommitRestoreGoogle(ctx context.Context, id, binding string, identity GoogleIdentity) (Vault, error) {
+	if identity.Subject == "" || identity.Email == "" {
+		return Vault{}, ErrInvalid
+	}
+	return s.commitRestore(ctx, id, binding, "", &identity)
+}
+func (s *Store) commitRestore(ctx context.Context, id, binding, password string, identity *GoogleIdentity) (Vault, error) {
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
 		return Vault{}, err
@@ -240,7 +249,7 @@ func (s *Store) CommitRestore(ctx context.Context, id, binding, password string)
 	if err = json.Unmarshal(encoded, &stage); err != nil || !ValidStage(stage) {
 		return Vault{}, ErrInvalid
 	}
-	var loginHash string
+	var loginHash *string
 	if stage.Expected == nil {
 		if !errors.Is(currentErr, ErrNotFound) {
 			if currentErr != nil {
@@ -248,9 +257,12 @@ func (s *Store) CommitRestore(ctx context.Context, id, binding, password string)
 			}
 			return Vault{}, ErrConflict
 		}
-		loginHash, err = PasswordHash(password)
-		if err != nil {
-			return Vault{}, ErrInvalid
+		if identity == nil {
+			value, e := PasswordHash(password)
+			if e != nil {
+				return Vault{}, ErrInvalid
+			}
+			loginHash = &value
 		}
 	} else {
 		if currentErr != nil {
@@ -292,6 +304,11 @@ func (s *Store) CommitRestore(ctx context.Context, id, binding, password string)
 	if stage.Expected == nil {
 		if _, err = tx.Exec(ctx, `INSERT INTO owner_auth(id,password_hash,vault_id) VALUES(true,$1,$2::uuid)`, loginHash, stage.Envelope.VaultID); err != nil {
 			return Vault{}, err
+		}
+		if identity != nil {
+			if _, err = tx.Exec(ctx, `INSERT INTO google_identity(owner_id,subject,email) VALUES(true,$1,$2)`, identity.Subject, identity.Email); err != nil {
+				return Vault{}, err
+			}
 		}
 	} else {
 		if _, err = tx.Exec(ctx, `UPDATE owner_auth SET vault_id=$1::uuid WHERE id=true`, stage.Envelope.VaultID); err != nil {

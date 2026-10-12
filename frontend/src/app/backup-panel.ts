@@ -17,6 +17,7 @@ export class BackupPanel {
   login = '';
   confirmation = '';
   replaceConfirmed = false;
+  readonly driveId = signal('');
   constructor() {
     effect(() => {
       this.v.state();
@@ -62,12 +63,13 @@ export class BackupPanel {
     this.confirmation = '';
     this.replaceConfirmed = false;
     void this.v.perform(async () => {
-      if (!this.b.auth.initialized() && login !== confirmation)
+      if (!this.b.auth.initialized() && !this.b.auth.googleSetupReady() && login !== confirmation)
         throw new Error('Login passwords do not match.');
       await this.b.commit(login, confirmed);
     });
   }
   timestamp(value: string) {
+    if (!Number.isFinite(Date.parse(value))) return 'Unknown snapshot time';
     return new Intl.DateTimeFormat('en-IN', {
       dateStyle: 'medium',
       timeStyle: 'short',
@@ -76,6 +78,28 @@ export class BackupPanel {
   }
   refresh() {
     void this.v.perform(() => this.b.refresh());
+  }
+  setBackupPreference(key: 'backup_frequency' | 'backup_keep', value: any) {
+    void this.v.perform(async () =>
+      this.b.preferences.set({ ...this.b.preferences.value(), [key]: value }),
+    );
+  }
+  uploadDrive() {
+    void this.v.perform(() => this.b.uploadDrive());
+  }
+  refreshDrive() {
+    void this.v.perform(() => this.b.google.list());
+  }
+  verifyDrive() {
+    const secret = this.secret,
+      mode = this.mode,
+      id = this.driveId();
+    this.secret = '';
+    void this.v.perform(() => this.b.inspectDrive(id, secret, mode));
+  }
+  disconnectDrive() {
+    if (window.confirm('Disconnect Drive on this device? Existing backups remain in Google Drive.'))
+      void this.v.perform(() => this.b.google.disconnect());
   }
   export(drafts = false) {
     void this.v.perform(() => this.b.exportBackup(drafts).then(() => {}));

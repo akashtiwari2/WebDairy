@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/akashtiwari2/WebDairy/backend/internal/cloud"
 	"github.com/akashtiwari2/WebDairy/backend/internal/private"
 	"github.com/jackc/pgx/v5"
 	"github.com/labstack/echo/v4"
@@ -50,7 +51,11 @@ func privateFailure(c echo.Context, err error) error {
 
 // New exposes only authenticated opaque vault storage. The development API is
 // retained for migration compatibility tests and is never mounted here.
-func New(checkDatabase func(context.Context) error, s *private.Store) *echo.Echo {
+func New(checkDatabase func(context.Context) error, s *private.Store, google ...*cloud.Google) *echo.Echo {
+	var g *cloud.Google
+	if len(google) > 0 {
+		g = google[0]
+	}
 	e := echo.New()
 	e.HideBanner = true
 	e.HidePort = true
@@ -64,7 +69,7 @@ func New(checkDatabase func(context.Context) error, s *private.Store) *echo.Echo
 				return c.NoContent(403)
 			}
 			origin := c.Request().Header.Get("Origin")
-			if (origin != "" && origin != "http://"+c.Request().Host) || c.Request().Header.Get("Sec-Fetch-Site") == "cross-site" {
+			if (origin != "" && origin != "http://"+c.Request().Host) || (c.Request().Header.Get("Sec-Fetch-Site") == "cross-site" && !(c.Request().Method == http.MethodGet && c.Path() == "/api/google/callback")) {
 				return c.NoContent(403)
 			}
 			if c.Request().Method != http.MethodGet && c.Request().Method != http.MethodHead {
@@ -75,7 +80,7 @@ func New(checkDatabase func(context.Context) error, s *private.Store) *echo.Echo
 				}
 			}
 			timeout := 10 * time.Second
-			if c.Path() == "/api/restore/stage" || c.Path() == "/api/restore/commit" {
+			if c.Path() == "/api/restore/stage" || c.Path() == "/api/restore/commit" || c.Path() == "/api/google/callback" || c.Path() == "/api/drive/upload" || c.Path() == "/api/drive/backups/:id" {
 				timeout = 60 * time.Second
 			}
 			ctx, cancel := context.WithTimeout(c.Request().Context(), timeout)
@@ -113,7 +118,7 @@ func New(checkDatabase func(context.Context) error, s *private.Store) *echo.Echo
 		if err := checkDatabase(c.Request().Context()); err != nil {
 			return c.JSON(503, map[string]string{"status": "unavailable", "database": "not-ready"})
 		}
-		return c.JSON(200, map[string]string{"status": "ok", "database": "ready", "stage": "phase3"})
+		return c.JSON(200, map[string]string{"status": "ok", "database": "ready", "stage": "phase4"})
 	})
 	e.GET("/api/auth/session", func(c echo.Context) error {
 		initialized, err := s.Initialized(c.Request().Context())
@@ -138,24 +143,42 @@ func New(checkDatabase func(context.Context) error, s *private.Store) *echo.Echo
 			setCookie(c, sessionCookie, token, 1800)
 		}
 		setCookie(c, csrfCookie, csrf, 1800)
-		return c.JSON(200, map[string]any{"initialized": initialized, "authenticated": authenticated, "csrf_token": csrf})
+		return c.JSON(200, map[string]any{"initialized": initialized, "authenticated": authenticated, "csrf_token": csrf, "google_setup_ready": !initialized && googleProof(c, g) != nil})
 	})
 	e.POST("/api/auth/setup", func(c echo.Context) error {
 		var request struct {
-			Password string           `json:"login_password"`
-			Envelope private.Envelope `json:"envelope"`
+			Password  string           `json:"login_password"`
+			UseGoogle bool             `json:"use_google"`
+			Envelope  private.Envelope `json:"envelope"`
 		}
 		if err := decode(c, &request); err != nil {
 			return err
 		}
-		if len(request.Password) < 12 || len(request.Password) > 1024 || !private.ValidEnvelope(request.Envelope) {
+		var proof *private.GoogleIdentity
+		if request.UseGoogle {
+			proof = googleProof(c, g)
+			if proof == nil {
+				return c.JSON(400, map[string]string{"error": "google_setup_expired", "message": "Google confirmation is missing or expired. Cancel this setup and sign in with Google again, or choose a local login password."})
+			}
+		}
+		if ((len(request.Password) < 12 || len(request.Password) > 1024) && proof == nil) || !private.ValidEnvelope(request.Envelope) {
 			return invalid(c)
 		}
 		if err := s.LoginAllowed(c.Request().Context()); err != nil {
 			return privateFailure(c, err)
 		}
-		if err := s.Setup(c.Request().Context(), request.Password, request.Envelope); err != nil {
+		var err error
+		if proof != nil {
+			err = s.SetupGoogle(c.Request().Context(), request.Envelope, *proof)
+		} else {
+			err = s.Setup(c.Request().Context(), request.Password, request.Envelope)
+		}
+		if err != nil {
 			return privateFailure(c, err)
+		}
+		if g != nil {
+			g.ClearProof(cookie(c, googleProofCookie))
+			setCookie(c, googleProofCookie, "", -1)
 		}
 		return issueSession(c)
 	})
@@ -322,8 +345,9 @@ func New(checkDatabase func(context.Context) error, s *private.Store) *echo.Echo
 	}, restoreAccess)
 	e.POST("/api/restore/commit", func(c echo.Context) error {
 		var request struct {
-			ID       string `json:"stage_id"`
-			Password string `json:"new_login_password"`
+			ID        string `json:"stage_id"`
+			Password  string `json:"new_login_password"`
+			UseGoogle bool   `json:"use_google"`
 		}
 		if err := decode(c, &request); err != nil {
 			return err
@@ -332,8 +356,18 @@ func New(checkDatabase func(context.Context) error, s *private.Store) *echo.Echo
 			return invalid(c)
 		}
 		fresh := c.Get("fresh_restore") == true
+		var proof *private.GoogleIdentity
+		if request.UseGoogle {
+			if !fresh {
+				return invalid(c)
+			}
+			proof = googleProof(c, g)
+			if proof == nil {
+				return c.JSON(400, map[string]string{"error": "google_setup_expired", "message": "Sign in with Google again before restoring without a local login password."})
+			}
+		}
 		if fresh {
-			if len(request.Password) < 12 || len(request.Password) > 1024 {
+			if (len(request.Password) < 12 || len(request.Password) > 1024) && proof == nil {
 				return invalid(c)
 			}
 			if err := s.LoginAllowed(c.Request().Context()); err != nil {
@@ -342,11 +376,21 @@ func New(checkDatabase func(context.Context) error, s *private.Store) *echo.Echo
 		} else if request.Password != "" {
 			return invalid(c)
 		}
-		v, err := s.CommitRestore(c.Request().Context(), request.ID, binding(c), request.Password)
+		var v private.Vault
+		var err error
+		if fresh && proof != nil {
+			v, err = s.CommitRestoreGoogle(c.Request().Context(), request.ID, binding(c), *proof)
+		} else {
+			v, err = s.CommitRestore(c.Request().Context(), request.ID, binding(c), request.Password)
+		}
 		if err != nil {
 			return privateFailure(c, err)
 		}
 		if fresh {
+			if g != nil {
+				g.ClearProof(cookie(c, googleProofCookie))
+				setCookie(c, googleProofCookie, "", -1)
+			}
 			token, csrf, err := s.NewSession(c.Request().Context())
 			if err != nil {
 				return privateFailure(c, err)
@@ -390,5 +434,6 @@ func New(checkDatabase func(context.Context) error, s *private.Store) *echo.Echo
 		}
 		return c.Blob(200, "application/json", encoded)
 	}, authenticate)
+	mountGoogle(e, s, g, authenticate)
 	return e
 }

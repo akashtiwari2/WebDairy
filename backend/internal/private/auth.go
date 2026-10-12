@@ -90,7 +90,7 @@ func (s *Store) CheckPassword(ctx context.Context, password string) error {
 	if err := s.LoginAllowed(ctx); err != nil {
 		return err
 	}
-	var hash string
+	var hash *string
 	err := s.Pool.QueryRow(ctx, `SELECT password_hash FROM owner_auth WHERE id=true`).Scan(&hash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrUnauthenticated
@@ -98,7 +98,7 @@ func (s *Store) CheckPassword(ctx context.Context, password string) error {
 	if err != nil {
 		return err
 	}
-	if !VerifyPassword(password, hash) {
+	if hash == nil || !VerifyPassword(password, *hash) {
 		return ErrUnauthenticated
 	}
 	return nil

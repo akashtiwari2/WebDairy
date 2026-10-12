@@ -1,4 +1,4 @@
-# Phase 3 security design and limits
+# Security design and development limits
 
 ## Scope
 
@@ -92,14 +92,15 @@ There is no permissive CORS configuration or request-body/access logging.
 The Angular development response has a CSP restricted to locally bundled scripts
 (including WASM compilation), same-origin API and local development WebSocket,
 with no frames/objects. Inline styles remain required by Angular. This is a development
-server, not the future packaged server; equivalent headers and deployment controls
-must be implemented for that server before release.
+server. The embedded desktop server now supplies equivalent CSP/local-origin
+controls; signed distribution and platform acceptance are still required.
 
 Cloud Docker trust authentication, a development database superuser and loopback
 HTTP are **synthetic development only**. Before personal use, provision a restricted
 runtime DB role distinct from the migration/admin role, authenticated local database
 access, trusted executable/assets and supported desktop lifecycle. Phase 3 export/restore has been rehearsed with synthetic data on clean databases;
-Windows packaging and supported desktop acceptance remain future work.
+Unsigned desktop packaging is implemented; supported-device acceptance and signing
+remain future work.
 This implementation has automated development checks, not a third-party security audit.
 
 ## Portable backup and restore
@@ -145,6 +146,30 @@ content; deletion does not revoke or edit exported files.
 This is local snapshot replacement, not merging or multi-device synchronization.
 Old backups require their own historical passphrase/recovery key after rewrapping.
 A clean-database import asks for a new independent local login; it never restores
-login credentials. Automatic/Drive backups and desktop secure token handling belong
-to Phase 4. Trash retention is a minimum period (1–365 days, default 30); deletion
+login credentials. Optional Drive backups and desktop OS token storage are implemented in Phase 4. Trash retention is a minimum period (1–365 days, default 30); deletion
 of expired items requires confirmation while unlocked, rather than an unattended purge.
+
+## Google identity and tokens
+
+Google authorization uses one-use expiring state and S256 PKCE. Identity is fetched
+directly from the fixed HTTPS Google userinfo endpoint with the exchanged access
+token; browser email/JWT claims are not trusted. A linked Google subject is immutable
+through normal linking. Existing owners must authenticate locally to link; fresh
+Google setup/restore requires a temporary HttpOnly proof and explicit Google mode.
+Google-only owners have a NULL local password hash until they explicitly add one.
+
+Sign-in requests only identity/email; separate Drive consent requests appDataFolder
+access. Refresh/access tokens remain in OS credential storage, never in PostgreSQL,
+browser storage, archives or plaintext fallback files. Background upload is allowed
+only while locally authenticated/unlocked. Archived login credentials are excluded.
+
+Each upload is a new opaque archive with a durable operation ID. Transfer checksum
+verification and retry lookup precede per-vault retention, which keeps at least
+three files and never deletes another vault's backups. Google sees operational
+metadata, ciphertext and wrapped keys, not decrypted diary content or vault keys.
+The packaged frontend serves the local API/assets with a restrictive CSP, no
+permissive CORS and loopback binding. Existing Host/Origin/CSRF checks remain.
+
+Mock-provider checks cover identity/state/replay/scope/credential-store failure,
+upload retries, token isolation and retention. Live Google trials, OS keychain
+acceptance, signing/notarization and trusted distribution remain release checks.

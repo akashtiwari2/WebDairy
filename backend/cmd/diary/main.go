@@ -5,13 +5,17 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
+	"github.com/akashtiwari2/WebDairy/backend/internal/cloud"
 	"github.com/akashtiwari2/WebDairy/backend/internal/database"
+	"github.com/akashtiwari2/WebDairy/backend/internal/desktop"
 	"github.com/akashtiwari2/WebDairy/backend/internal/private"
 	"github.com/akashtiwari2/WebDairy/backend/internal/server"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -32,6 +36,7 @@ func loadEnvironment(path string, required bool) error {
 }
 
 func run() error {
+	desktopMode := flag.Bool("desktop", false, "serve embedded UI, open browser and reuse an existing app instance")
 	migrate := flag.Bool("migrate", false, "apply pending numbered database migrations and exit")
 	migrationPath := flag.String("migrations", "../migrations", "migration directory")
 	resetLogin := flag.Bool("reset-login", false, "reset login password interactively and invalidate all sessions; vault unchanged")
@@ -43,11 +48,30 @@ func run() error {
 			explicitEnv = true
 		}
 	})
+	if *desktopMode && !explicitEnv {
+		executable, e := os.Executable()
+		if e != nil {
+			return e
+		}
+		*envFile = filepath.Join(filepath.Dir(executable), ".env")
+	}
 	if err := loadEnvironment(*envFile, explicitEnv); err != nil {
 		return err
 	}
+	if *desktopMode && !*resetLogin && !*migrate {
+		if !desktop.Ready() {
+			return errors.New("desktop assets missing; build with node scripts/package.mjs")
+		}
+		if desktop.Existing() {
+			return desktop.OpenBrowser("http://127.0.0.1:8080")
+		}
+	}
+
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
+		if *desktopMode {
+			return errors.New("DATABASE_URL is required; copy .env.example to .env next to the desktop executable and configure PostgreSQL")
+		}
 		return errors.New("DATABASE_URL is required; copy backend/.env.example to backend/.env and set your PostgreSQL connection")
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -59,12 +83,17 @@ func run() error {
 	defer pool.Close()
 	if !*resetLogin || *migrate {
 		migrationCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
-		err := database.Migrate(migrationCtx, pool, *migrationPath)
+		var err error
+		if *desktopMode {
+			err = database.MigrateFS(migrationCtx, pool, desktop.Migrations())
+		} else {
+			err = database.Migrate(migrationCtx, pool, *migrationPath)
+		}
 		cancel()
 		if err != nil {
 			return fmt.Errorf("database migration failed: %w", err)
 		}
-		fmt.Println("Database migrations ready (versions 1 through 6).")
+		fmt.Println("Database migrations ready (versions 1 through 7).")
 		if *migrate {
 			return nil
 		}
@@ -100,13 +129,45 @@ func run() error {
 	}
 	e := server.New(func(ctx context.Context) error {
 		var version int
-		err := pool.QueryRow(ctx, "SELECT version FROM schema_migrations WHERE version = 6").Scan(&version)
+		err := pool.QueryRow(ctx, "SELECT version FROM schema_migrations WHERE version = 7").Scan(&version)
 		return err
-	}, &private.Store{Pool: pool})
+	}, &private.Store{Pool: pool}, cloud.New(os.Getenv("GOOGLE_CLIENT_ID"), os.Getenv("GOOGLE_CLIENT_SECRET")))
+	if *desktopMode {
+		desktop.Mount(e)
+	}
 	addr := "127.0.0.1:8080"
-	fmt.Println("WebDairy Phase 3 backend listening on", addr)
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		if *desktopMode && desktop.Existing() {
+			return desktop.OpenBrowser("http://127.0.0.1:8080")
+		}
+		return errors.New("port 8080 is occupied; keep the existing app running or stop your own old backend before starting this one")
+	}
+	e.Listener = listener
+	defer listener.Close()
+	fmt.Println("WebDairy Phase 4 backend listening on", addr)
 	failure := make(chan error, 1)
 	go func() { failure <- e.Start(addr) }()
+	if *desktopMode {
+		go func() {
+			client := http.Client{Timeout: time.Second}
+			for attempt := 0; attempt < 30; attempt++ {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+				}
+				if r, e := client.Get("http://127.0.0.1:8080/api/health"); e == nil {
+					r.Body.Close()
+					if r.StatusCode == 200 {
+						_ = desktop.OpenBrowser("http://127.0.0.1:8080")
+						return
+					}
+				}
+				time.Sleep(200 * time.Millisecond)
+			}
+		}()
+	}
 	select {
 	case err := <-failure:
 		if !errors.Is(err, http.ErrServerClosed) {

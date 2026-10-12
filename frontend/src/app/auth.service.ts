@@ -5,11 +5,13 @@ export class APIError extends Error {
     readonly data: any,
   ) {
     super(
-      status === 401
-        ? 'Login expired. Your encrypted draft is retained.'
-        : status === 429
-          ? 'Too many login attempts. Wait one minute.'
-          : 'Request failed. Check backend and PostgreSQL.',
+      data?.error === 'google_setup_expired'
+        ? data.message
+        : status === 401
+          ? 'Login expired. Your encrypted draft is retained.'
+          : status === 429
+            ? 'Too many login attempts. Wait one minute.'
+            : 'Request failed. Check backend and PostgreSQL.',
     );
   }
 }
@@ -17,15 +19,18 @@ interface Session {
   initialized: boolean;
   authenticated: boolean;
   csrf_token: string;
+  google_setup_ready?: boolean;
 }
 @Injectable({ providedIn: 'root' })
 export class AuthService {
   readonly authenticated = signal(false);
   readonly initialized = signal(false);
+  readonly googleSetupReady = signal(false);
   private csrf = '';
   accept(profile: Session) {
     this.authenticated.set(profile.authenticated);
     this.initialized.set(profile.initialized);
+    this.googleSetupReady.set(profile.google_setup_ready === true);
     this.csrf = profile.csrf_token;
   }
   async session() {
@@ -36,7 +41,11 @@ export class AuthService {
   }
   async setup(login_password: string, envelope: unknown) {
     this.accept(
-      await this.request<Session>('/api/auth/setup', 'POST', { login_password, envelope }),
+      await this.request<Session>('/api/auth/setup', 'POST', {
+        login_password,
+        envelope,
+        use_google: this.googleSetupReady(),
+      }),
     );
   }
   async logout() {
@@ -62,6 +71,7 @@ export class AuthService {
     const data = response.status === 204 ? undefined : await response.json().catch(() => undefined);
     if (!response.ok) {
       if (response.status === 401) this.authenticated.set(false);
+      if (data?.error === 'google_setup_expired') this.googleSetupReady.set(false);
       throw new APIError(response.status, data);
     }
     return data as T;

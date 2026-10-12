@@ -80,9 +80,23 @@ func ValidWrite(w Write) bool {
 	return e == nil && len(ciphertext) >= 16 && len(ciphertext) <= 1500000 && w.CryptoVersion == 1 && UUID.MatchString(w.Epoch) && exactBase64(w.Nonce, 12) && UUID.MatchString(w.OperationID) && w.ExpectedRevision >= 0 && w.ExpectedRevision <= 9007199254740990
 }
 func (s *Store) Setup(ctx context.Context, password string, envelope Envelope) error {
-	hash, err := PasswordHash(password)
-	if err != nil {
-		return err
+	return s.setup(ctx, password, envelope, nil)
+}
+func (s *Store) SetupGoogle(ctx context.Context, envelope Envelope, identity GoogleIdentity) error {
+	if identity.Subject == "" || identity.Email == "" || !ValidEnvelope(envelope) {
+		return ErrInvalid
+	}
+	return s.setup(ctx, "", envelope, &identity)
+}
+func (s *Store) setup(ctx context.Context, password string, envelope Envelope, identity *GoogleIdentity) error {
+	var hash *string
+	var err error
+	if identity == nil {
+		value, e := PasswordHash(password)
+		if e != nil {
+			return e
+		}
+		hash = &value
 	}
 	encoded, err := json.Marshal(envelope)
 	if err != nil {
@@ -108,6 +122,11 @@ func (s *Store) Setup(ctx context.Context, password string, envelope Envelope) e
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO owner_auth(id,password_hash,vault_id) VALUES(true,$1,$2::uuid)`, hash, envelope.VaultID); err != nil {
 		return err
+	}
+	if identity != nil {
+		if _, err = tx.Exec(ctx, `INSERT INTO google_identity(owner_id,subject,email) VALUES(true,$1,$2)`, identity.Subject, identity.Email); err != nil {
+			return err
+		}
 	}
 	return tx.Commit(ctx)
 }

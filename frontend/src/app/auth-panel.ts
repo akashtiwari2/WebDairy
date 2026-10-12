@@ -1,3 +1,4 @@
+import { GoogleService } from './google.service';
 import { Component, input, signal, inject, effect } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { PreferencesService, Preferences } from './preferences.service';
@@ -69,6 +70,7 @@ import { VaultService } from './vault.service';
   ],
 })
 export class AuthPanel {
+  readonly google = inject(GoogleService);
   readonly preferences = inject(PreferencesService);
   setPreference(key: keyof Preferences, value: any) {
     void this.v.perform(async () =>
@@ -83,6 +85,8 @@ export class AuthPanel {
   confirmation = '';
   current = '';
   currentLogin = '';
+  offlinePassword = '';
+  offlineConfirmation = '';
   recoveryInput = '';
   savedOffline = false;
   constructor() {
@@ -99,6 +103,8 @@ export class AuthPanel {
     this.confirmation = '';
     this.current = '';
     this.currentLogin = '';
+    this.offlinePassword = '';
+    this.offlineConfirmation = '';
     this.recoveryInput = '';
     this.savedOffline = false;
   }
@@ -140,6 +146,16 @@ export class AuthPanel {
       if (pass !== confirm) throw new Error('Passphrases do not match.');
       await this.v.recover(secret, pass);
       this.recovering.set(false);
+    });
+  }
+  async addOfflinePassword() {
+    const password = this.offlinePassword,
+      confirm = this.offlineConfirmation;
+    this.clear();
+    await this.v.perform(async () => {
+      if (password !== confirm) throw new Error('Offline passwords do not match.');
+      await this.v.auth.request('/api/auth/offline-password', 'POST', { password });
+      await this.google.refresh();
     });
   }
   async changePass() {

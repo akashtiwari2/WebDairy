@@ -48,3 +48,13 @@ reconnection, the streak visibility setting, backup-health state and removal of
 normal editor save/restore buttons. Unit tests cover civil-date/leap-day streaks,
 future-date exclusion, private metadata limits, local filters and backup age/source
 classification, including record removal/revision changes.
+
+Phase 4 adds OAuth/Drive mock-provider and disposable PostgreSQL checks for verified
+subject/PKCE/replay, separate scopes, OS-store failure, token isolation, explicit
+Google/local setup mode, offline password setup, idempotent encrypted uploads and
+Google-backed fresh restore. Frontend tests cover schedules, durable upload retry,
+blocked/isolated popups and callback-cookie timing. Desktop smoke validation uses
+a packaged Linux executable from an unrelated working directory, embedded SQL,
+second-instance reuse and a production-CSP browser encryption/recovery workflow.
+Windows/macOS cross-compilation is build evidence; live OAuth/OS acceptance remains
+manual after configuring the client described in google-setup.md.

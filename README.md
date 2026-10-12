@@ -4,7 +4,7 @@ A local personal diary built with Angular, Go Echo and PostgreSQL, following the
 owner-supplied `Diary_App_Detailed_Plan.pdf`. The PDF describes planned features;
 this repository's roadmap records what is actually implemented.
 
-## Current milestone: Phase 3 local release
+## Current milestone: Phase 4 development implementation
 
 - Calendar/editor for past, present and future dates; configurable timezone (Asia/Kolkata default), month picker and collapsible calendar.
 - Separate login password and vault passphrase; Argon2id password hashing,
@@ -16,7 +16,7 @@ this repository's roadmap records what is actually implemented.
   retries and explicit comparison before resolving a conflict.
 - Encrypted IndexedDB pending drafts, recovery on unlock, manual/five-minute
   inactivity lock, and one editing tab per browser origin using Web Locks.
-- Browser-only title/body search with date filters and excerpts.
+- Browser-only title/body/tag search, mood/tag filters, optional writing streak and backup health; local text search with date filters and excerpts.
 - Trash comparison/restore to an empty date, confirmed permanent deletion and
   confirmed expired-trash cleanup (30 days by default).
 - Light/dark/system theme, timezone and trash-period settings.
@@ -24,6 +24,12 @@ this repository's roadmap records what is actually implemented.
   backup and atomic replacement; independent passphrase/recovery-key restoration.
 - Last three pre-replacement backups retained in PostgreSQL, with encrypted browser
   copies and separate file downloads.
+
+Google sign-in uses PKCE/state and a verified Google subject. Drive consent is
+separate; OAuth tokens use OS credential storage. Daily/weekly/monthly encrypted
+uploads retry durable pending archives, with per-vault retention after verified
+transfer. New-device restore still needs a backup passphrase/recovery key.
+Desktop builds embed Angular assets and migrations; PostgreSQL remains required.
 
 Clean-database restore is rehearsed automatically with both backup secrets.
 This is development software, not a security-audited release. The development
@@ -50,7 +56,7 @@ For local Windows/Mac use, run `go run ./cmd/diary` from `backend`; no separate
 `-migrate` command is required. Already-applied migrations are skipped.
 
 Cloud startup checks ports, starts the labelled synthetic database, applies numbered
-migrations 1–6, then starts Go on loopback 8080 and Angular on loopback 4200 with
+migrations 1–7, then starts Go on loopback 8080 and Angular on loopback 4200 with
 the same-origin `/api` proxy. Ctrl+C stops its app children; PostgreSQL stays up.
 
 On the first visit, create two different passwords, copy the recovery key offline,
@@ -65,7 +71,8 @@ bash scripts/test-browser.sh      # Chromium, disposable DB, both restore secret
 
 Writing now includes encrypted mood/tags and local filters, an optional saved-day
 streak, durable offline drafts with reconnect retries, and browser backup health.
-See [writing and offline limits](docs/writing.md). Full Drive backups remain planned.
+See [writing and offline limits](docs/writing.md). Optional Google login, scheduled Drive backups and desktop builds are now available
+after configuration. See [Google and desktop setup](docs/google-setup.md).
 
 See [local Windows/Mac setup](docs/setup.md), [API](docs/api.md),
 [security design](docs/security.md), [browser checks](docs/browser-tests.md) and

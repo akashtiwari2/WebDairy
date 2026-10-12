@@ -34,23 +34,55 @@
     <button (click)="retry()" [disabled]="v.busy()">Retry</button>
   </section>
 } @else if (v.state() === 'setup') {
+  <section class="panel">
+    <h2>Google login</h2>
+    @if (google.status().configured) {
+      @if (v.auth.googleSetupReady()) {
+        <p>
+          Signed in as {{ google.status().email }}. Create a vault below or restore a Drive backup.
+        </p>
+      } @else {
+        <button type="button" (click)="google.connect('login')" [disabled]="google.connecting()">
+          Sign in with Google
+        </button>
+      }
+    } @else {
+      <p>
+        Google login is optional. Configure your Desktop OAuth client using docs/google-setup.md to
+        enable it.
+      </p>
+    }
+    @if (google.error()) {
+      <p role="alert">{{ google.error() }}</p>
+    }
+    @if (google.connecting()) {
+      <p>Finish sign-in in the Google window.</p>
+      <button (click)="google.cancel()">Cancel</button>
+    }
+  </section>
   <section class="panel" aria-label="Set up vault">
     <h2>Create your local vault</h2>
     <p>
-      Use two different passwords. Login allows backend access. The vault passphrase decrypts your
-      diary in this browser.
+      {{
+        v.auth.googleSetupReady()
+          ? 'Google handles login. Choose a vault passphrase to encrypt your diary.'
+          : 'Use two different passwords. Login allows backend access; the vault passphrase decrypts your diary.'
+      }}
     </p>
     <form (ngSubmit)="setup()">
+      @if (!v.auth.googleSetupReady()) {
+        <label
+          >Login password (at least 12 characters)<input
+            id="setup-login"
+            name="login"
+            type="password"
+            [(ngModel)]="loginPassword"
+            autocomplete="new-password"
+            minlength="12"
+            required
+        /></label>
+      }
       <label
-        >Login password (at least 12 characters)<input
-          id="setup-login"
-          name="login"
-          type="password"
-          [(ngModel)]="loginPassword"
-          autocomplete="new-password"
-          minlength="12"
-          required /></label
-      ><label
         >Vault passphrase (at least 12 characters)<input
           id="setup-pass"
           name="pass"
@@ -73,6 +105,18 @@
 } @else if (v.state() === 'login') {
   <section class="panel" aria-label="Login">
     <h2>Log in to WebDairy</h2>
+    @if (google.status().configured) {
+      <button (click)="google.connect('login')" [disabled]="google.connecting()">
+        Sign in with Google
+      </button>
+    }
+    @if (google.error()) {
+      <p role="alert">{{ google.error() }}</p>
+    }
+    @if (google.connecting()) {
+      <p>Finish Google sign-in in the other window.</p>
+      <button (click)="google.cancel()">Cancel</button>
+    }
     <form (ngSubmit)="login()">
       <label
         >Login password<input
@@ -148,6 +192,54 @@
   <section class="panel" aria-label="Vault settings">
     <h2>Vault settings</h2>
     <p class="hint">WebDairy · Phase 3 local release · Backup format 1</p>
+    <div class="google-account">
+      <h3>Google account</h3>
+      @if (google.status().offline_password_available) {
+        <details>
+          <summary>Optional offline login password</summary>
+          <p>
+            Google sign-in needs internet for a new session. Add a local login password to open the
+            app offline; your vault passphrase stays separate.
+          </p>
+          <form (ngSubmit)="addOfflinePassword()">
+            <label
+              >Offline login password<input
+                name="offline-password"
+                type="password"
+                minlength="12"
+                required
+                [(ngModel)]="offlinePassword"
+                autocomplete="new-password"
+            /></label>
+            <label
+              >Confirm offline password<input
+                name="offline-confirm"
+                type="password"
+                required
+                [(ngModel)]="offlineConfirmation"
+                autocomplete="new-password"
+            /></label>
+            <button [disabled]="v.busy()">Enable offline login</button>
+          </form>
+        </details>
+      }
+      @if (google.status().linked) {
+        <p>Linked: {{ google.status().email }}. Google login does not unlock the vault.</p>
+      } @else if (google.status().configured) {
+        <button (click)="google.connect('link')" [disabled]="google.connecting()">
+          Link Google account
+        </button>
+        <p>Your existing local login remains available.</p>
+      } @else {
+        <p>Set up Desktop OAuth first; see docs/google-setup.md.</p>
+      }
+      @if (google.error()) {
+        <p role="alert">{{ google.error() }}</p>
+      }
+      @if (google.connecting()) {
+        <button (click)="google.cancel()">Cancel Google connection</button>
+      }
+    </div>
     <div class="preferences-grid">
       <label
         ><input
