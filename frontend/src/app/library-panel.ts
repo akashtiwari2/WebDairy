@@ -1,4 +1,5 @@
 import { Component, DestroyRef, computed, inject, output, signal } from '@angular/core';
+import { moods } from './vault-crypto';
 import { FormsModule } from '@angular/forms';
 import { DiaryService } from './diary.service';
 import { VaultService } from './vault.service';
@@ -15,6 +16,9 @@ export class LibraryPanel {
   readonly open = output<string>();
   readonly tab = signal<'search' | 'trash'>('search');
   readonly query = signal('');
+  readonly mood = signal('');
+  readonly tag = signal('');
+  readonly moods = moods;
   readonly from = signal('');
   readonly until = signal('');
   readonly alternative = signal('');
@@ -29,7 +33,15 @@ export class LibraryPanel {
           (s.title.trim() || s.body.trim()) &&
           (!this.from() || s.date >= this.from()) &&
           (!this.until() || s.date <= this.until()) &&
-          (!query || (s.title + '\n' + s.body).toLocaleLowerCase().includes(query)),
+          (!this.mood() || s.mood === this.mood()) &&
+          (!this.tag().trim() ||
+            (s.tags ?? []).some(
+              (t) => t.toLocaleLowerCase() === this.tag().trim().toLocaleLowerCase(),
+            )) &&
+          (!query ||
+            (s.title + '\n' + s.body + '\n' + (s.tags ?? []).join(' '))
+              .toLocaleLowerCase()
+              .includes(query)),
       )
       .sort((a, b) => b.date.localeCompare(a.date))
       .map((s) => {

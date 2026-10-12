@@ -40,6 +40,8 @@ describe('Portable encrypted backups', () => {
       date,
       title,
       body,
+      mood: 'Happy',
+      tags: ['SYNTHETIC PRIVATE TAG'],
       trashed,
       trashed_at: trashed ? '2026-10-11T01:00:00Z' : null,
       created_at: '2026-10-11T00:00:00Z',

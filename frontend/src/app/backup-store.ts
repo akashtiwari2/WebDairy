@@ -4,6 +4,7 @@ export interface LocalBackup {
   saved_at: string;
   source: string;
   archive: Archive;
+  record_versions?: string;
 }
 export class BackupStore {
   private db?: Promise<IDBDatabase>;
@@ -36,12 +37,13 @@ export class BackupStore {
         reject(new Error('Encrypted backup storage failed. Existing diary preserved.'));
     });
   }
-  async save(archive: Archive, source: string) {
+  async save(archive: Archive, source: string, recordVersions?: string) {
     const backup: LocalBackup = {
       id: crypto.randomUUID(),
       saved_at: new Date().toISOString(),
       source,
       archive,
+      ...(recordVersions === undefined ? {} : { record_versions: recordVersions }),
     };
     await this.transaction('readwrite', (s) => s.put(backup));
     return backup;

@@ -7,7 +7,7 @@
   </div>
   @if (tab() === 'search') {
     <h2>Find a day</h2>
-    <p>Search title and text in this unlocked browser.</p>
+    <p>Search title, text and tags in this unlocked browser.</p>
     <label
       >Search text<input
         id="search-query"
@@ -23,6 +23,23 @@
         >Through date<input type="date" [ngModel]="until()" (ngModelChange)="until.set($event)"
       /></label>
     </div>
+    <div class="tool-row">
+      <label
+        >Mood<select id="search-mood" [ngModel]="mood()" (ngModelChange)="mood.set($event)">
+          <option value="">Any mood</option>
+          @for (item of moods; track item) {
+            <option [value]="item">{{ item }}</option>
+          }
+        </select></label
+      >
+      <label
+        >Tag (exact match)<input
+          id="search-tag"
+          [ngModel]="tag()"
+          (ngModelChange)="tag.set($event)"
+          maxlength="32"
+      /></label>
+    </div>
     @if (from() && until() && from() > until()) {
       <p role="alert">Choose a start date before the end date.</p>
     }
@@ -34,6 +51,7 @@
             {{ entry.date }} · {{ entry.title || 'Untitled' }}
           </button>
           <p class="excerpt">{{ entry.excerpt }}</p>
+          <small>{{ entry.mood || '' }} {{ (entry.tags || []).join(' · ') }}</small>
           <small>{{ entry.status === 'saved' ? 'Saved' : 'Includes a draft' }}</small>
         </article>
       } @empty {

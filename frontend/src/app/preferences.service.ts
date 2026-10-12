@@ -3,14 +3,21 @@ export interface Preferences {
   timezone: string;
   theme: 'light' | 'dark' | 'system';
   trash_days: number;
+  show_streak?: boolean;
 }
-export const defaults: Preferences = { timezone: 'Asia/Kolkata', theme: 'system', trash_days: 30 };
+export const defaults: Preferences = {
+  timezone: 'Asia/Kolkata',
+  theme: 'system',
+  trash_days: 30,
+  show_streak: true,
+};
 export function validPreferences(value: Preferences): boolean {
   if (
     !value ||
     typeof value.timezone !== 'string' ||
     value.timezone.length > 100 ||
     !['light', 'dark', 'system'].includes(value.theme) ||
+    (value.show_streak !== undefined && typeof value.show_streak !== 'boolean') ||
     !Number.isInteger(value.trash_days) ||
     value.trash_days < 1 ||
     value.trash_days > 365

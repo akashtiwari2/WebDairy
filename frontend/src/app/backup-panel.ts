@@ -67,6 +67,16 @@ export class BackupPanel {
       await this.b.commit(login, confirmed);
     });
   }
+  timestamp(value: string) {
+    return new Intl.DateTimeFormat('en-IN', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+      timeZone: this.b.preferences.value().timezone,
+    }).format(new Date(value));
+  }
+  refresh() {
+    void this.v.perform(() => this.b.refresh());
+  }
   export(drafts = false) {
     void this.v.perform(() => this.b.exportBackup(drafts).then(() => {}));
   }

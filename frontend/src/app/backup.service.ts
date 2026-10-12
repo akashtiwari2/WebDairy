@@ -1,4 +1,4 @@
-import { Injectable, inject, signal } from '@angular/core';
+import { DestroyRef, Injectable, computed, effect, inject, signal } from '@angular/core';
 import { AuthService, APIError } from './auth.service';
 import { VaultService } from './vault.service';
 import { DiaryService } from './diary.service';
@@ -14,6 +14,7 @@ import {
   canonical,
 } from './backup-format';
 import { BackupStore, LocalBackup } from './backup-store';
+import { backupHealth, recordVersions } from './writing-insights';
 import { Vault } from './vault-crypto';
 interface RestoreState {
   vault_id: string;
@@ -46,6 +47,25 @@ export class BackupService {
   readonly message = signal('');
   readonly local = signal<LocalBackup[]>([]);
   readonly historyError = signal('');
+  readonly localReady = signal(false);
+  readonly localError = signal('');
+  private readonly healthTick = signal(Date.now());
+  readonly health = computed(() => {
+    this.vault.state();
+    if (this.localError())
+      return { label: 'Backup storage unavailable', savedAt: '', kind: 'unavailable' };
+    if (!this.localReady()) return { label: 'Checking backups…', savedAt: '', kind: 'checking' };
+    const updates = [...this.diary.states().values(), ...this.diary.trash().values()]
+      .filter((s) => s.revision > 0 || s.title.trim() || s.body.trim())
+      .map((s) => Date.parse(s.updated_at));
+    return backupHealth(
+      this.local(),
+      this.vault.vault?.envelope.vault_id ?? '',
+      updates.reduce((latest, value) => Math.max(latest, value), 0),
+      this.healthTick(),
+      recordVersions([...this.diary.states().values(), ...this.diary.trash().values()]),
+    );
+  });
   readonly history = signal<{ id: string; saved_at: string }[]>([]);
   private candidate?: VerifiedBackup;
   private safety?: { expected: RestoreState; archive: Archive };
@@ -59,6 +79,11 @@ export class BackupService {
   private expires?: ReturnType<typeof setTimeout>;
   constructor() {
     this.vault.clearListeners.add(() => this.clearPreview());
+    effect(() => {
+      if (this.vault.state() === 'unlocked') void this.refresh().catch(() => {});
+    });
+    const tick = setInterval(() => this.healthTick.set(Date.now()), 60000);
+    inject(DestroyRef).onDestroy(() => clearInterval(tick));
   }
   clearPreview() {
     this.candidate?.raw.fill(0);
@@ -70,7 +95,18 @@ export class BackupService {
     clearTimeout(this.expires);
   }
   async refresh() {
-    this.local.set(await this.store.list());
+    this.healthTick.set(Date.now());
+    try {
+      this.local.set(await this.store.list());
+      this.localReady.set(true);
+      this.localError.set('');
+    } catch (e) {
+      this.localReady.set(false);
+      this.localError.set(
+        'Browser backup storage is unavailable. Keep downloaded files separately.',
+      );
+      throw e;
+    }
     this.historyError.set('');
     if (this.auth.authenticated()) {
       try {
@@ -120,7 +156,11 @@ export class BackupService {
       (salt) => this.vault.backupKey(salt),
       drafts ? 'browser-draft' : 'database',
     );
-    await this.store.save(archive, drafts ? 'unsaved-text' : 'export');
+    await this.store.save(
+      archive,
+      drafts ? 'unsaved-text' : 'export',
+      recordVersions(snapshot.records),
+    );
     this.download(archive);
     await this.refresh();
     this.message.set(
@@ -145,7 +185,7 @@ export class BackupService {
       this.vault.key,
       (salt) => this.vault.backupKey(salt),
     );
-    await this.store.save(archive, 'before-restore');
+    await this.store.save(archive, 'before-restore', recordVersions(snapshot.records));
     this.download(archive, 'before-restore');
     this.safety = { expected: baseline(snapshot.vault), archive };
     this.stage = undefined;

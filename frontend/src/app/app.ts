@@ -1,3 +1,5 @@
+import { moods, Mood } from './vault-crypto';
+import { parseTags, writingStreak } from './writing-insights';
 import { Component, DestroyRef, computed, effect, inject, signal } from '@angular/core';
 import { LibraryPanel } from './library-panel';
 import { BackupService } from './backup.service';
@@ -28,6 +30,9 @@ export class App {
   readonly vault = inject(VaultService);
   readonly backup = inject(BackupService);
   readonly settings = signal(false);
+  readonly moods = moods;
+  readonly tagError = signal('');
+  readonly streak = computed(() => writingStreak(this.diary.dates(), this.today()));
   readonly diaryView = computed(
     () =>
       this.vault.state() === 'unlocked' &&
@@ -76,11 +81,14 @@ export class App {
           unsaved: 'Unsaved',
           saving: 'Saving…',
           saved: 'Saved',
-          failed: this.entry().deleteRequested
-            ? 'Delete failed'
-            : this.entry().loaded
-              ? 'Save failed'
-              : 'Load failed',
+          failed:
+            this.diary.connectionLost() && this.entry().localDraftReady
+              ? 'Saved on this device · pending database save'
+              : this.entry().deleteRequested
+                ? 'Delete failed'
+                : this.entry().loaded
+                  ? 'Save failed'
+                  : 'Load failed',
           conflict: 'Conflict · draft preserved',
           deleting: 'Deleting…',
         }) satisfies Record<SaveStatus, string>
@@ -146,6 +154,7 @@ export class App {
   async select(date: string) {
     if (!validCivilDate(date)) return;
     if (date !== this.selected()) void this.diary.save(this.selected());
+    this.tagError.set('');
     this.selected.set(date);
     this.month.set(date.slice(0, 7));
     await this.diary.load(date);
@@ -204,8 +213,18 @@ export class App {
     )
       await this.diary.overwriteWithDraft(date);
   }
-  restoreSavedText() {
+  setMood(mood: Mood) {
     const entry = this.entry();
-    this.edit(entry.savedTitle, entry.savedBody);
+    this.diary.edit(this.selected(), entry.title, entry.body, mood);
+  }
+  setTags(text: string) {
+    try {
+      const tags = parseTags(text),
+        entry = this.entry();
+      this.diary.edit(this.selected(), entry.title, entry.body, entry.mood ?? '', tags);
+      this.tagError.set('');
+    } catch (e) {
+      this.tagError.set(e instanceof Error ? e.message : 'Check your tags.');
+    }
   }
 }

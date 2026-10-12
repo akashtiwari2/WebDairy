@@ -76,6 +76,28 @@ describe('Local library and confirmed retention cleanup', () => {
     expect(panel.results()[0].excerpt).toBe('Private local text');
     expect(panel.results().some((s) => s.trashed)).toBe(false);
   });
+  it('combines private mood/tag filters with text and dates', () => {
+    const diary = TestBed.inject(DiaryService);
+    diary.states.set(
+      new Map(
+        [...diary.states()].map(([date, row]) => [
+          date,
+          {
+            ...row,
+            mood: date.startsWith('2099') ? ('Calm' as const) : ('Happy' as const),
+            tags: ['Travel'],
+          },
+        ]),
+      ),
+    );
+    panel.mood.set('Calm');
+    panel.tag.set('travel');
+    expect(panel.results().map((s) => s.id)).toEqual(['future']);
+    panel.query.set('travel');
+    expect(panel.results()).toHaveLength(1);
+    panel.tag.set('work');
+    expect(panel.results()).toHaveLength(0);
+  });
   it('does not purge without confirmation and only removes expired trash when confirmed', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(false);
     panel.purgeExpired();

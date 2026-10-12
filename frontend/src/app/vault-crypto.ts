@@ -24,10 +24,14 @@ export interface Vault {
   vault_epoch: string;
   generation: number;
 }
+export const moods = ['Happy', 'Calm', 'Neutral', 'Sad', 'Stressed'] as const;
+export type Mood = (typeof moods)[number] | '';
 export interface Payload {
   date: string;
   title: string;
   body: string;
+  mood?: Mood;
+  tags?: string[];
   created_at: string;
   updated_at: string;
   trashed: boolean;
@@ -78,6 +82,18 @@ export function validatePayload(value: Payload): Payload {
     Array.from(value.title).length > 200 ||
     typeof value.body !== 'string' ||
     encoder.encode(value.body).length > 1048576 ||
+    (value.mood !== undefined && value.mood !== '' && !moods.includes(value.mood)) ||
+    (value.tags !== undefined &&
+      (!Array.isArray(value.tags) ||
+        value.tags.length > 10 ||
+        value.tags.some(
+          (tag) =>
+            typeof tag !== 'string' ||
+            !tag.trim() ||
+            tag !== tag.trim() ||
+            Array.from(tag).length > 32,
+        ) ||
+        new Set(value.tags.map((tag) => tag.toLocaleLowerCase())).size !== value.tags.length)) ||
     typeof value.trashed !== 'boolean' ||
     (value.trashed_at != null &&
       (typeof value.trashed_at !== 'string' || !Number.isFinite(Date.parse(value.trashed_at)))) ||

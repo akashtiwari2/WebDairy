@@ -22,19 +22,39 @@ Phase 4 login/backup/restore requirements below; these remain pending.
 5. **Phase 5:** accessibility, corruption/failure coverage, release hardening,
    supported-platform validation and documented trusted release.
 
-## Next task: simplify autosave controls (pending)
+## Autosave controls (implemented)
 
-Requested by the owner; scheduled before Phase 4. This is a task-list entry,
-not an implemented UI change yet.
+Implemented with the writing enhancements below; validated with encrypted-draft
+and browser failure/recovery checks.
 
-- [ ] Remove the always-visible **Save now** button from normal diary editing.
-- [ ] Remove **Restore saved text** and its unused handler; it is not version history.
-- [ ] Keep autosave and clear **Saving… / Saved / Save failed** status feedback.
-- [ ] Show **Retry save** only when saving fails; retain the draft if retry fails.
-- [ ] Keep conflict comparison/resolution, encrypted draft recovery and delete/trash
+- [x] Remove the always-visible **Save now** button from normal diary editing.
+- [x] Remove **Restore saved text** and its unused handler; it is not version history.
+- [x] Keep autosave and clear **Saving… / Saved / Save failed** status feedback.
+- [x] Show **Retry save** only when saving fails; retain the draft if retry fails.
+- [x] Keep conflict comparison/resolution, encrypted draft recovery and delete/trash
       controls available. Removing editor buttons must not remove these safeguards.
-- [ ] Verify successful autosave, failed-save retry and draft preservation; check
+- [x] Verify successful autosave, failed-save retry and draft preservation; check
       desktop/mobile layout with the simplified controls.
+
+## Replanned writing enhancements (implemented before Phase 4)
+
+The owner prioritized these local features before Google OAuth/Drive packaging.
+
+- [x] Offline local writing without internet; encrypted drafts during an unlocked
+      backend outage and automatic pending-save retry after backend recovery.
+      Reopen/unlock still requires the local services; this is not a standalone PWA.
+- [x] Current/best streak and written-day count from saved entry dates, with a
+      Settings option to hide it. Exclude future dates, trash and unconfirmed drafts.
+- [x] Optional encrypted mood/tags, local mood/tag search filters and metadata
+      preservation through draft recovery, trash, encrypted backup and restore.
+- [x] Backup health: last full browser backup, missing/overdue/new-change state,
+      storage errors and a clear distinction from emergency exports/off-device copies.
+- [x] Simplify autosave controls and validate encrypted recovery and responsive UI.
+
+Details and practical offline limits: [writing guide](writing.md).
+Next: Phase 4 Google login, protected desktop lifecycle, scheduled Drive backups
+and new-device restore discovery. Photos, reminders and simultaneous-device sync
+are not included in this feature batch.
 
 ## Phase 4: requested Google login and scheduled backups (pending)
 

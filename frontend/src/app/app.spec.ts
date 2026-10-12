@@ -6,7 +6,15 @@ import { DiaryService, validCivilDate } from './diary.service';
 import { AuthService } from './auth.service';
 import { VaultService } from './vault.service';
 import { StoredDraft } from './drafts';
-import { aesKey, encryptJSON, context, OpaqueRecord, OpaqueWrite, Payload } from './vault-crypto';
+import {
+  aesKey,
+  encryptJSON,
+  decryptJSON,
+  context,
+  OpaqueRecord,
+  OpaqueWrite,
+  Payload,
+} from './vault-crypto';
 const date = '2030-10-20',
   vaultID = '12345678-1234-4234-8234-123456789012';
 const response = (status: number, data: unknown) =>
@@ -118,6 +126,46 @@ describe('Encrypted autosave and durable drafts', () => {
     expect(local.size).toBe(0);
     expect(JSON.stringify(writes())).not.toContain(date);
     expect(JSON.stringify(writes())).not.toContain('SYNTHETIC');
+  });
+  it('saves mood/tags encrypted, detects metadata-only edits and restores them on unlock', async () => {
+    service.edit(date, 'Private title', 'Private body', 'Happy', ['SYNTHETIC_TAG']);
+    await service.save(date);
+    expect(service.state(date).savedMood).toBe('Happy');
+    service.edit(date, 'Private title', 'Private body', 'Calm', ['SYNTHETIC_TAG', 'Travel']);
+    await service.save(date);
+    expect(service.state(date).revision).toBe(2);
+    service.clear();
+    await service.initialize();
+    expect(service.state(date).mood).toBe('Calm');
+    expect(service.state(date).tags).toEqual(['SYNTHETIC_TAG', 'Travel']);
+    expect(JSON.stringify(writes())).not.toContain('SYNTHETIC_TAG');
+  });
+  it('keeps offline edits encrypted and automatically saves the latest draft after backend recovery', async () => {
+    const original = handle;
+    handle = async () => response(502, {});
+    service.edit(date, 'Title', 'Offline first', 'Sad', ['Private']);
+    await service.save(date);
+    expect(service.connectionLost()).toBe(true);
+    expect(service.state(date).localDraftReady).toBe(true);
+    service.edit(date, 'Title', 'Offline latest', 'Calm', ['Private']);
+    await service.save(date);
+    expect(service.state(date).localDraftReady).toBe(true);
+    const stored = [...local.values()][0];
+    const decoded = await decryptJSON<any>(
+      key,
+      stored,
+      context('draft', vaultID, stored.record_id),
+    );
+    expect(decoded.state.body).toBe('Offline latest');
+    expect(JSON.stringify(stored)).not.toContain('Offline');
+    handle = async (path, init) =>
+      path === '/api/health' ? response(200, { database: 'ready' }) : original(path, init);
+    await service.resumePending();
+    expect(service.state(date).status).toBe('saved');
+    expect(service.state(date).savedBody).toBe('Offline latest');
+    expect(service.state(date).savedMood).toBe('Calm');
+    expect(local.size).toBe(0);
+    expect(service.connectionLost()).toBe(false);
   });
   it('does not create untouched empty entries', async () => {
     await service.save(date);

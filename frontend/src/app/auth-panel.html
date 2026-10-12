@@ -150,6 +150,15 @@
     <p class="hint">WebDairy · Phase 3 local release · Backup format 1</p>
     <div class="preferences-grid">
       <label
+        ><input
+          id="show-streak"
+          type="checkbox"
+          [ngModel]="preferences.value().show_streak !== false"
+          (ngModelChange)="setPreference('show_streak', $event)"
+        />
+        Show writing streak</label
+      >
+      <label
         >Timezone<input
           list="timezone-list"
           [ngModel]="preferences.value().timezone"

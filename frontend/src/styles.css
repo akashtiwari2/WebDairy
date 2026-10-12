@@ -407,3 +407,58 @@ main .conflict-panel pre {
     font-size: 16px;
   }
 }
+
+/* Compact encrypted entry metadata and writing/backup indicators. */
+main .notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+main .notice button {
+  background: transparent;
+  color: var(--accent);
+  border: 0;
+  padding: 2px;
+  font-size: 11px;
+  text-align: left;
+}
+.entry-metadata {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+.entry-metadata label {
+  margin: 0;
+  font-size: 11px;
+}
+.entry-metadata label:last-child {
+  flex: 1;
+  min-width: 180px;
+}
+.entry-metadata small {
+  color: var(--muted);
+}
+.entry-metadata input,
+.entry-metadata select {
+  margin: 3px 0 0;
+  padding: 6px 8px;
+  font-size: 12px;
+  width: 100%;
+}
+.backup-health-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px;
+  margin-bottom: 18px;
+  background: var(--soft);
+}
+@media (max-width: 760px) {
+  .entry-metadata input,
+  .entry-metadata select {
+    font-size: 16px;
+  }
+}

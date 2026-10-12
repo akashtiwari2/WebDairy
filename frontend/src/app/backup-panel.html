@@ -5,6 +5,18 @@
     key from when it was created. Login passwords and sessions are excluded.
   </p>
   @if (v.state() === 'unlocked') {
+    <div class="backup-health-card" role="status">
+      <strong>{{ b.health().label }}</strong>
+      @if (b.health().savedAt) {
+        <p>Last full browser backup: {{ timestamp(b.health().savedAt) }}</p>
+      }
+      <p>
+        Full backups are manual. A backup older than 24 hours is overdue; unsaved-text exports are
+        separate. This tracks browser copies, not a confirmed copy on another device. Download and
+        keep a file separately. Google Drive automatic backups are planned.
+      </p>
+      <button (click)="refresh()" [disabled]="v.busy()">Refresh backup health</button>
+    </div>
     <div class="tool-row">
       <button id="export-backup" (click)="export()" [disabled]="v.busy()">
         Save and export backup</button

@@ -72,7 +72,20 @@
       </div>
     </div>
     <div class="notice" role="note">
-      Wait for Saved before closing. Keep an encrypted backup and your recovery key separately.
+      <span
+        >{{
+          diary.internetOnline()
+            ? 'Changes save automatically.'
+            : 'No internet · local writing is available.'
+        }}
+        @if (preferences.value().show_streak !== false) {
+          <span id="writing-streak">
+            · {{ streak().current }} day streak · Best {{ streak().best }} ·
+            {{ streak().total }} written days</span
+          >
+        }
+      </span>
+      <button id="backup-health" (click)="openTool('backup')">{{ backup.health().label }}</button>
     </div>
     <div class="workspace" [class.calendar-hidden]="!calendarOpen()">
       @if (calendarOpen()) {
@@ -126,7 +139,11 @@
         </div>
         @if (entry().error) {
           <div class="save-message" role="alert">
-            {{ entry().error }}
+            {{
+              diary.connectionLost() && entry().localDraftReady
+                ? 'Encrypted draft saved on this device. Keep the app open; it will retry when the backend returns. Reopening or unlocking needs the local backend.'
+                : entry().error
+            }}
             @if (entry().status === 'failed') {
               <button (click)="retry()">
                 {{
@@ -169,6 +186,38 @@
           [ngModel]="entry().title"
           (ngModelChange)="edit($event, entry().body)"
         />
+        <div class="entry-metadata">
+          <label
+            >Mood<select
+              id="entry-mood"
+              [ngModel]="entry().mood || ''"
+              (ngModelChange)="setMood($event)"
+              [disabled]="!editable()"
+            >
+              <option value="">Not set</option>
+              @for (mood of moods; track mood) {
+                <option [value]="mood">{{ mood }}</option>
+              }
+            </select></label
+          >
+          <label
+            >Tags <small>(comma-separated; Enter or leave field to apply)</small>
+            <input
+              id="entry-tags"
+              #tags
+              [value]="(entry().tags || []).join(', ')"
+              (change)="setTags(tags.value)"
+              (keydown.enter)="setTags(tags.value)"
+              maxlength="350"
+              placeholder="Work, Travel"
+              [disabled]="!editable()"
+              aria-describedby="tag-error"
+            />
+          </label>
+        </div>
+        @if (tagError()) {
+          <p id="tag-error" role="alert">{{ tagError() }}</p>
+        }
         <label class="sr-only" for="body">Entry text</label
         ><textarea
           id="body"
@@ -178,23 +227,6 @@
           (ngModelChange)="edit(entry().title, $event)"
         ></textarea>
         <div class="editor-actions">
-          <button
-            (click)="diary.save(selected())"
-            [disabled]="
-              !editable() ||
-              entry().status === 'conflict' ||
-              entry().status === 'saving' ||
-              entry().status === 'saved' ||
-              entry().status === 'blank'
-            "
-          >
-            Save now
-          </button>
-          @if (entry().revision > 0 && entry().status !== 'conflict') {
-            <button (click)="restoreSavedText()" [disabled]="!editable()">
-              Restore saved text
-            </button>
-          }
           @if (entry().revision > 0 || entry().title || entry().body) {
             <button
               class="delete"

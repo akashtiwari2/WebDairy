@@ -134,10 +134,65 @@ try {
     ["2099-10-20", "SYNTHETIC FUTURE", "SYNTHETIC FUTURE BODY"],
   ]) {
     const result = await action(
-      `await a.select(${JSON.stringify(date)});a.diary.edit(a.selected(),${JSON.stringify(title)},${JSON.stringify(body)});await a.diary.save(a.selected());return a.entry().status;`,
+      `await a.select(${JSON.stringify(date)});a.diary.edit(a.selected(),${JSON.stringify(title)},${JSON.stringify(body)},'Happy',['SYNTHETIC TAG']);await a.diary.save(a.selected());return a.entry().status;`,
     );
     assert.equal(result, "saved");
   }
+  assert.equal(
+    await evaluate(
+      `document.body.innerText.includes('Restore saved text') || document.body.innerText.includes('Save now')`,
+    ),
+    false,
+  );
+  await waitFor(`${app}.backup.localReady()`);
+  assert.equal(await action(`return a.backup.health().kind;`), "missing");
+  assert.equal(
+    await action(`return a.streak().total;`),
+    1,
+    "Future dates do not count toward writing streak",
+  );
+  // A local backend outage must preserve encrypted edits and resume without a manual save.
+  await action(
+    `await a.select('2024-02-29');window.featureFetch=window.fetch;window.fetch=(url,...args)=>String(url).startsWith('/api/')?Promise.reject(new TypeError('synthetic backend outage')):window.featureFetch(url,...args);a.diary.edit(a.selected(),'SYNTHETIC LEAP','SYNTHETIC OFFLINE FIRST','Sad',['SYNTHETIC TAG']);await a.diary.save(a.selected());a.diary.edit(a.selected(),'SYNTHETIC LEAP','SYNTHETIC OFFLINE LATEST','Calm',['SYNTHETIC TAG','Travel']);await a.diary.save(a.selected());`,
+  );
+  assert.equal(
+    await action(
+      `return a.entry().localDraftReady && a.diary.connectionLost();`,
+    ),
+    true,
+  );
+  assert.equal(
+    await action(`return a.entry().body;`),
+    "SYNTHETIC OFFLINE LATEST",
+  );
+  await waitFor(`document.body.innerText.includes('Saved on this device')`);
+  await action(
+    `window.fetch=window.featureFetch;delete window.featureFetch;window.dispatchEvent(new Event('online'));`,
+  );
+  await waitFor(`${app}.entry().status==='saved'`);
+  assert.equal(
+    await action(
+      `return {body:a.entry().savedBody,mood:a.entry().savedMood,tags:a.entry().savedTags};`,
+    ).then((x) => JSON.stringify(x)),
+    JSON.stringify({
+      body: "SYNTHETIC OFFLINE LATEST",
+      mood: "Calm",
+      tags: ["SYNTHETIC TAG", "Travel"],
+    }),
+  );
+  await action(`a.settings.set(true);`);
+  await waitFor(`!!document.querySelector('#show-streak')`);
+  await evaluate(`document.querySelector('#show-streak').click()`);
+  await action(`a.openTool('diary');`);
+  await waitFor(`!!document.querySelector('#body')`);
+  assert.equal(
+    await evaluate(`!!document.querySelector('#writing-streak')`),
+    false,
+  );
+  await action(
+    `a.preferences.set({...a.preferences.value(),show_streak:true});`,
+  );
+  await action(`await a.select('2099-10-20');`);
   if (process.env.WEBDIARY_BROWSER_SCREENSHOT_DIR) {
     mkdirSync(process.env.WEBDIARY_BROWSER_SCREENSHOT_DIR, { recursive: true });
     const shot = await send("Page.captureScreenshot", { format: "png" });
@@ -405,10 +460,11 @@ try {
     await action(`a.tools.set('diary');`);
   }
   const expected = await action(
-    `return {active:[...a.diary.states().values()].filter(s=>s.revision>0).map(s=>({date:s.date,title:s.title,body:s.body})).sort((a,b)=>a.date.localeCompare(b.date)),trash:[...a.diary.trash().values()].map(s=>({date:s.date,title:s.title,body:s.body}))};`,
+    `return {active:[...a.diary.states().values()].filter(s=>s.revision>0).map(s=>({date:s.date,title:s.title,body:s.body,mood:s.mood||'',tags:s.tags||[]})).sort((a,b)=>a.date.localeCompare(b.date)),trash:[...a.diary.trash().values()].map(s=>({date:s.date,title:s.title,body:s.body,mood:s.mood||'',tags:s.tags||[]}))};`,
   );
   const archive = await action(`return await a.backup.exportBackup();`);
   assert.equal(JSON.stringify(archive).includes("SYNTHETIC"), false);
+  assert.equal(await action(`return a.backup.health().kind;`), "recent");
   await sleep(300);
   const downloaded = readdirSync(process.env.WEBDIARY_BROWSER_DOWNLOADS).filter(
     (n) => n.endsWith(".diary"),
@@ -556,7 +612,7 @@ try {
       `${app}.vault.state()==='unlocked' && !!document.querySelector('#body')`,
     );
     const restored = await action(
-      `return {active:[...a.diary.states().values()].filter(s=>s.revision>0).map(s=>({date:s.date,title:s.title,body:s.body})).sort((a,b)=>a.date.localeCompare(b.date)),trash:[...a.diary.trash().values()].map(s=>({date:s.date,title:s.title,body:s.body}))};`,
+      `return {active:[...a.diary.states().values()].filter(s=>s.revision>0).map(s=>({date:s.date,title:s.title,body:s.body,mood:s.mood||'',tags:s.tags||[]})).sort((a,b)=>a.date.localeCompare(b.date)),trash:[...a.diary.trash().values()].map(s=>({date:s.date,title:s.title,body:s.body,mood:s.mood||'',tags:s.tags||[]}))};`,
     );
     assert.deepEqual(restored, expected);
     assert.equal(
@@ -632,7 +688,7 @@ try {
   assert.equal(await action(`return a.diary.states().size;`), 0);
   assert.ok((await action(`return a.vault.error();`)).includes("integrity"));
   console.log(
-    `PASS: desktop viewport fit, long-text editor scrolling, independent settings/mobile navigation, setup, encrypted API/IndexedDB, wrong keys, second-tab exclusion, lock/reload drafts, passphrase change, recovery rotation, auto-lock, storage failure, login change and tampering; Phase 3 local search, occupied trash restore/purge, encrypted file download/emergency export, failed-safety preservation, invalid-file preservation, stale-safety rejection, lost-commit retry and clean-database recovery with BOTH passphrase and recovery key. Setup KDF flow: ${Math.round(setup.ms)} ms.`,
+    `PASS: mood/tags encrypted API and backup restore, optional streak, backup health, offline durable drafts and automatic reconnect, simpler autosave controls, desktop viewport fit, long-text editor scrolling, independent settings/mobile navigation, setup, encrypted API/IndexedDB, wrong keys, second-tab exclusion, lock/reload drafts, passphrase change, recovery rotation, auto-lock, storage failure, login change and tampering; Phase 3 local search, occupied trash restore/purge, encrypted file download/emergency export, failed-safety preservation, invalid-file preservation, stale-safety rejection, lost-commit retry and clean-database recovery with BOTH passphrase and recovery key. Setup KDF flow: ${Math.round(setup.ms)} ms.`,
   );
 } finally {
   ws.close();

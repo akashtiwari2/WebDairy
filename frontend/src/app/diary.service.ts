@@ -1,9 +1,10 @@
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { DestroyRef, Injectable, computed, inject, signal } from '@angular/core';
 import { AuthService, APIError } from './auth.service';
 import { VaultService } from './vault.service';
 import { DraftStore } from './drafts';
 import {
   Payload,
+  Mood,
   OpaqueRecord,
   OpaqueWrite,
   context,
@@ -23,6 +24,9 @@ export interface Entry extends Payload {
 export interface EntryState extends Entry {
   savedTitle: string;
   savedBody: string;
+  savedMood?: Mood;
+  savedTags?: string[];
+  localDraftReady?: boolean;
   savedTrashed: boolean;
   savedTrashedAt?: string | null;
   loaded: boolean;
@@ -47,6 +51,8 @@ function empty(date: string): EntryState {
     date,
     title: '',
     body: '',
+    mood: '',
+    tags: [],
     created_at: now,
     updated_at: now,
     trashed: false,
@@ -64,12 +70,16 @@ function empty(date: string): EntryState {
 const dirty = (s: EntryState) =>
   s.title !== s.savedTitle ||
   s.body !== s.savedBody ||
+  (s.mood ?? '') !== (s.savedMood ?? '') ||
+  JSON.stringify(s.tags ?? []) !== JSON.stringify(s.savedTags ?? []) ||
   s.trashed !== s.savedTrashed ||
   (s.trashed_at ?? null) !== (s.savedTrashedAt ?? null);
 const payload = (s: EntryState): Payload => ({
   date: s.date,
   title: s.title,
   body: s.body,
+  ...(s.mood === undefined ? {} : { mood: s.mood }),
+  ...(s.tags === undefined ? {} : { tags: s.tags }),
   created_at: s.created_at,
   updated_at: s.updated_at,
   trashed: s.trashed,
@@ -79,6 +89,8 @@ const payload = (s: EntryState): Payload => ({
 export class DiaryService {
   readonly vault = inject(VaultService);
   private readonly auth = inject(AuthService);
+  readonly connectionLost = signal(false);
+  readonly internetOnline = signal(navigator.onLine);
   readonly trash = signal(new Map<string, EntryState>());
   private purges = new Map<
     string,
@@ -107,12 +119,52 @@ export class DiaryService {
     this.vault.onOpen = () => this.initialize();
     this.vault.onLock = () => this.flushAndClear();
     this.vault.onFailedOpen = () => this.clear();
-    window.addEventListener('beforeunload', (e) => {
+    const online = () => {
+      this.internetOnline.set(navigator.onLine);
+      void this.resumePending();
+    };
+    const offline = () => this.internetOnline.set(navigator.onLine);
+    window.addEventListener('online', online);
+    window.addEventListener('offline', offline);
+    const reconnect = setInterval(() => {
+      if (this.connectionLost()) void this.resumePending();
+    }, 10000);
+    const beforeUnload = (e: BeforeUnloadEvent) => {
       if ([...this.states().values()].some((s) => dirty(s) || this.attempts.has(s.date))) {
         e.preventDefault();
         e.returnValue = '';
       }
+    };
+    window.addEventListener('beforeunload', beforeUnload);
+    inject(DestroyRef).onDestroy(() => {
+      clearInterval(reconnect);
+      window.removeEventListener('online', online);
+      window.removeEventListener('offline', offline);
+      window.removeEventListener('beforeunload', beforeUnload);
     });
+  }
+  private resuming = false;
+  async resumePending() {
+    if (this.paused || this.vault.busy() || this.resuming) return;
+    this.resuming = true;
+    try {
+      const health = await this.auth.request<{ database: string }>(
+        '/api/health',
+        'GET',
+        undefined,
+        3000,
+      );
+      if (health.database !== 'ready') return;
+      this.connectionLost.set(false);
+      for (const state of this.states().values()) {
+        if (state.loaded && state.localDraftReady && state.status === 'failed')
+          await this.retry(state.date);
+      }
+    } catch {
+      /* Keep durable drafts; a later heartbeat retries connectivity. */
+    } finally {
+      this.resuming = false;
+    }
   }
   state(date: string): EntryState {
     return this.states().get(date) ?? empty(date);
@@ -149,6 +201,8 @@ export class DiaryService {
           ...entry,
           savedTitle: entry.title,
           savedBody: entry.body,
+          savedMood: entry.mood,
+          savedTags: entry.tags,
           savedTrashed: entry.trashed,
           savedTrashedAt: entry.trashed_at ?? null,
           loaded: true,
@@ -224,14 +278,21 @@ export class DiaryService {
         ...state,
         loaded: true,
         status: state.status === 'conflict' ? 'conflict' : 'unsaved',
-        error: 'Recovered encrypted draft. Review it, then save or resolve the conflict.',
+        error:
+          state.status === 'conflict'
+            ? 'Recovered encrypted draft. Compare it before resolving the conflict.'
+            : 'Recovered encrypted draft. Saving automatically…',
       });
     }
     this.states.set(states);
     this.trash.set(trash);
     this.attempts = attempts;
     this.paused = false;
+    this.connectionLost.set(false);
     this.indexError.set('');
+    for (const state of states.values()) {
+      if (state.status === 'unsaved') this.schedule(state.date, 1000);
+    }
   }
   private async decrypt(record: OpaqueRecord): Promise<Entry> {
     if (
@@ -266,13 +327,22 @@ export class DiaryService {
   async loadDates() {
     /* Index is decrypted atomically at unlock; it is never sent as dates. */
   }
-  edit(date: string, title: string, body: string) {
+  edit(
+    date: string,
+    title: string,
+    body: string,
+    mood: Mood = this.state(date).mood ?? '',
+    tags: string[] = this.state(date).tags ?? [],
+  ) {
     if (this.paused || this.vault.busy()) return;
     const current = this.state(date);
     if (!current.loaded || current.deleteRequested) return;
     this.set(date, {
       title,
       body,
+      mood,
+      tags: [...tags],
+      localDraftReady: false,
       trashed: false,
       trashed_at: null,
       updated_at: new Date().toISOString(),
@@ -285,6 +355,7 @@ export class DiaryService {
   private storageFailure(date: string, e: unknown) {
     this.set(date, {
       status: 'failed',
+      localDraftReady: false,
       error: e instanceof Error ? e.message : 'Encrypted draft storage failed. Keep this tab open.',
     });
   }
@@ -307,6 +378,7 @@ export class DiaryService {
         const attempt = this.attempts.get(date);
         if (!dirty(state) && !attempt && state.status !== 'conflict') {
           await this.drafts.remove(this.vault.id, state.id);
+          this.set(date, { localDraftReady: false });
           return;
         }
         const sealed = await encryptJSON(
@@ -321,6 +393,8 @@ export class DiaryService {
           format_version: 1,
           ...sealed,
         });
+        if (JSON.stringify(payload(this.state(date))) === JSON.stringify(payload(state)))
+          this.set(date, { localDraftReady: true });
       });
     this.queues.set(date, queued);
     return queued;
@@ -351,7 +425,7 @@ export class DiaryService {
           if (!data.trashed && !data.title.trim() && !data.body.trim()) {
             this.set(date, {
               status: state.revision ? 'unsaved' : 'blank',
-              error: state.revision ? 'Use Delete entry to remove saved text, or restore it.' : '',
+              error: state.revision ? 'Use Delete entry to remove saved text.' : '',
             });
             await this.stash(date);
             return;
@@ -379,6 +453,7 @@ export class DiaryService {
           'PUT',
           attempt.write,
         );
+        this.connectionLost.set(false);
         const acknowledged = await this.decrypt(record);
         if (
           record.id !== state.id ||
@@ -398,6 +473,8 @@ export class DiaryService {
           revision: record.revision,
           savedTitle: acknowledged.title,
           savedBody: acknowledged.body,
+          savedMood: acknowledged.mood,
+          savedTags: acknowledged.tags,
           savedTrashed: acknowledged.trashed,
           savedTrashedAt: acknowledged.trashed_at ?? null,
           deleteRequested: latest.trashed && !acknowledged.trashed,
@@ -445,6 +522,13 @@ export class DiaryService {
           });
         }
       } else {
+        if (
+          (e instanceof APIError && e.status >= 500) ||
+          e instanceof TypeError ||
+          (e instanceof DOMException &&
+            ['TimeoutError', 'AbortError', 'NetworkError'].includes(e.name))
+        )
+          this.connectionLost.set(true);
         this.set(date, {
           status: 'failed',
           error: e instanceof Error ? e.message : 'Save failed. Draft preserved.',
@@ -478,7 +562,15 @@ export class DiaryService {
     }
     const state = this.state(date);
     if (state.revision === 0) {
-      this.set(date, { title: '', body: '', status: 'blank', error: '', trashed: false });
+      this.set(date, {
+        title: '',
+        body: '',
+        mood: '',
+        tags: [],
+        status: 'blank',
+        error: '',
+        trashed: false,
+      });
       await this.stash(date);
       return;
     }
@@ -505,6 +597,8 @@ export class DiaryService {
         ...current,
         savedTitle: current.title,
         savedBody: current.body,
+        savedMood: current.mood,
+        savedTags: current.tags,
         savedTrashed: true,
         savedTrashedAt: current.trashed_at ?? null,
         status: 'blank',
@@ -525,6 +619,8 @@ export class DiaryService {
       ...current,
       savedTitle: current.title,
       savedBody: current.body,
+      savedMood: current.mood,
+      savedTags: current.tags,
       savedTrashed: current.trashed,
       savedTrashedAt: current.trashed_at ?? null,
       conflict: undefined,
@@ -544,6 +640,8 @@ export class DiaryService {
       revision: state.conflict?.revision ?? 0,
       savedTitle: state.conflict?.title ?? '',
       savedBody: state.conflict?.body ?? '',
+      savedMood: state.conflict?.mood ?? '',
+      savedTags: state.conflict?.tags ?? [],
       savedTrashed: state.conflict?.trashed ?? false,
       savedTrashedAt: state.conflict?.trashed_at ?? null,
       conflict: undefined,

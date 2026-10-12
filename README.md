@@ -63,6 +63,10 @@ bash scripts/test-integration.sh  # Real PostgreSQL, restore rollback, race dete
 bash scripts/test-browser.sh      # Chromium, disposable DB, both restore secrets
 ```
 
+Writing now includes encrypted mood/tags and local filters, an optional saved-day
+streak, durable offline drafts with reconnect retries, and browser backup health.
+See [writing and offline limits](docs/writing.md). Full Drive backups remain planned.
+
 See [local Windows/Mac setup](docs/setup.md), [API](docs/api.md),
 [security design](docs/security.md), [browser checks](docs/browser-tests.md) and
 [roadmap](docs/roadmap.md).

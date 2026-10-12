@@ -41,3 +41,10 @@ The layout checks verify a six-week calendar fits desktop windows at 1440×900,
 editor and visible save controls. Settings occupies its own view. Long diary text
 scrolls inside the editor; narrow/mobile and expanded forms can use normal page
 scrolling so controls remain reachable.
+
+The writing enhancements additionally verify encrypted mood/tags in API records
+and clean-database restore with both keys, durable drafts and automatic backend
+reconnection, the streak visibility setting, backup-health state and removal of
+normal editor save/restore buttons. Unit tests cover civil-date/leap-day streaks,
+future-date exclusion, private metadata limits, local filters and backup age/source
+classification, including record removal/revision changes.
