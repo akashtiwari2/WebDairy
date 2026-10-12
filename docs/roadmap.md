@@ -21,6 +21,20 @@ The owner authorized implementation through Phase 3.
 5. **Phase 5:** accessibility, corruption/failure coverage, release hardening,
    supported-platform validation and documented trusted release.
 
+## Next task: simplify autosave controls (pending)
+
+Requested by the owner; scheduled before Phase 4. This is a task-list entry,
+not an implemented UI change yet.
+
+- [ ] Remove the always-visible **Save now** button from normal diary editing.
+- [ ] Remove **Restore saved text** and its unused handler; it is not version history.
+- [ ] Keep autosave and clear **Saving… / Saved / Save failed** status feedback.
+- [ ] Show **Retry save** only when saving fails; retain the draft if retry fails.
+- [ ] Keep conflict comparison/resolution, encrypted draft recovery and delete/trash
+      controls available. Removing editor buttons must not remove these safeguards.
+- [ ] Verify successful autosave, failed-save retry and draft preservation; check
+      desktop/mobile layout with the simplified controls.
+
 Defaults: Asia/Kolkata, one owner/vault, one active computer/browser origin,
 immutable random record IDs, one active entry per civil date, one-second autosave,
 five-minute auto-lock and 30-day trash minimum. Local backup is manual; browser
