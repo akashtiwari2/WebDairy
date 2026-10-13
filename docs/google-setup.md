@@ -16,15 +16,19 @@ OAuth tokens or vault/recovery keys in chat or commit them to Git.
    its JSON and keep it private. Use this same client/project on each device so
    Google's private app-data folder contains the same backups. A web application
    client with arbitrary browser redirect settings is not this desktop flow.
-5. In your local `backend/.env` add the `client_id` and `client_secret` from the
-   downloaded JSON (not your Google password):
+5. In a browser package, stop WebDairy and open **Setup-WebDairy**. Enter the
+   PostgreSQL connection, expand **Google connection**, and paste both `client_id`
+   and `client_secret` from the downloaded JSON. Connect and open the diary. These
+   settings are saved locally; users do not need Go/Node or manual `.env` editing.
+   In a source checkout instead, add the values to your local `backend/.env`
+   (not your Google password):
 
    ```dotenv
    GOOGLE_CLIENT_ID=YOUR_DESKTOP_CLIENT_ID.apps.googleusercontent.com
    GOOGLE_CLIENT_SECRET=YOUR_DESKTOP_CLIENT_SECRET
    ```
 
-6. Restart the backend: `go run ./cmd/diary`. Migration 7 is automatic. Keep the
+6. For a source checkout, restart the backend: `go run ./cmd/diary`. Migration 7 is automatic. Keep the
    frontend running with `npm start`, using `http://127.0.0.1:4200` consistently.
    The backend OAuth callback is `http://127.0.0.1:8080/api/google/callback`.
 7. Allow the Google sign-in popup. A successful callback says to close that window;
@@ -37,12 +41,12 @@ separate Google Console decision; this project does not publish your OAuth app.
 
 ## Existing diary versus new device
 
-For an existing diary, log in normally, open Settings and **Link Google account**.
+For an existing diary, log in normally, open Settings and **Connect Google account**.
 This binds the verified Google subject, not an email string, to the local owner.
 A different Google account cannot replace it. The original local password remains
-available. On later visits use **Sign in with Google**, then unlock the vault.
+available. On later visits use **Continue with Google**, then unlock the vault.
 
-For an empty database, **Sign in with Google** first. Choose a vault passphrase,
+For an empty database, **Continue with Google** first. Choose a vault passphrase,
 save/verify the recovery key and create the diary without a separate login password.
 Alternatively connect Drive and restore an existing backup before creating a vault.
 Google sign-in cannot decrypt diary content. To cold-start without internet after
@@ -51,7 +55,7 @@ Google login and Drive discovery require internet; local writing remains offline
 
 ## Drive permission and schedules
 
-Open Backups → **Connect Google Drive backups**. This is a separate consent flow;
+Open Backups → **Enable Google Drive backup**. This is a separate consent flow;
 login alone does not request Drive access. Tokens remain on the backend and are
 stored only in Windows Credential Manager, macOS Keychain or Linux Secret Service.
 No plaintext file/database/localStorage fallback exists. A locked/unavailable
@@ -102,10 +106,10 @@ Other targets: windows-arm64, darwin-amd64, linux-amd64. Output is in
 `release/<target>/`: executable, launcher, .env.example and setup guide. Angular
 assets and numbered migrations are embedded in the executable; runtime Node/Go
 and external SQL files are not required. PostgreSQL must still be installed and
-running on the user's machine. Copy `.env.example` to `.env` next to the executable,
+running on the user's machine. The first-run browser form saves the connection locally;
 set your own database and optional OAuth client, then run Start-WebDairy.
 
-The app opens `http://127.0.0.1:8080`; a second launcher opens the existing desktop
+The app opens `http://127.0.0.1:8080`; a second launcher opens the existing browser
 instance. Port conflicts report an error instead of stopping unrelated services.
 Keep its process running. Save/export old drafts before switching from port 4200:
 browser cookies/IndexedDB are tied to the browser origin. Committed database
@@ -115,3 +119,5 @@ These are unsigned development builds. Signing/notarization, installer distribut
 a real Google-account end-to-end trial and actual Windows/macOS hardware acceptance
 remain release validation tasks; mock-provider/cross-compilation checks are not
 proof of those external/platform checks.
+
+Daily use, first-run PostgreSQL setup, settings storage, launcher shortcuts and moving laptops: [daily-use guide](daily-use.md). No Tauri or native desktop window is used.

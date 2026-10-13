@@ -74,7 +74,27 @@ try {
     downloadPath: process.env.WEBDIARY_BROWSER_DOWNLOADS,
   });
   await send("Page.navigate", { url: "http://127.0.0.1:4200" });
-  await waitFor(`!!window.ng && !!document.querySelector('#setup-login')`);
+  await waitFor(`!!window.ng && !!document.querySelector('#start-new-diary')`);
+  assert.equal(
+    await evaluate(`!!document.querySelector('app-backup-panel')`),
+    false,
+    "Welcome should show a focused choice, not the full backup form",
+  );
+  assert.equal(
+    await evaluate(
+      `!!document.querySelector('#google-login') && document.querySelector('#google-login').disabled`,
+    ),
+    true,
+    "Unconfigured Google is visible with honest unavailable feedback",
+  );
+  assert.equal(
+    await evaluate(
+      `document.body.innerText.includes('PostgreSQL ready') || document.body.innerText.includes('DEVELOPMENT')`,
+    ),
+    false,
+  );
+  await evaluate(`document.querySelector('#start-new-diary').click()`);
+  await waitFor(`!!document.querySelector('#setup-login')`);
   assert.equal(
     await action(`return a.vault.state();`),
     "setup",
@@ -150,6 +170,34 @@ try {
     await action(`return a.streak().total;`),
     1,
     "Future dates do not count toward writing streak",
+  );
+  // UI-only mock metadata: automatic latest selection must not overwrite an older
+  // snapshot explicitly chosen by the user. Real Google acceptance remains separate.
+  await action(
+    `window.originalGoogleStatus={...a.backup.google.status()};window.originalPreferences={...a.preferences.value()};a.preferences.set({...a.preferences.value(),backup_frequency:'manual'});a.backup.google.status.set({...a.backup.google.status(),configured:true,linked:true,drive_connected:true,email:'synthetic@example.com'});a.backup.google.listed.set(true);a.backup.google.files.set([{id:'older_snapshot',createdTime:'2024-01-01T00:00:00Z',appProperties:{snapshot_at:'2024-01-01T00:00:00Z'}},{id:'latest_snapshot',createdTime:'2024-02-01T00:00:00Z',appProperties:{snapshot_at:'2024-02-01T00:00:00Z'}}]);a.openTool('backup');`,
+  );
+  await waitFor(`!!document.querySelector('#show-drive-restore')`);
+  await evaluate(`document.querySelector('#show-drive-restore').click()`);
+  await waitFor(`!!document.querySelector('#drive-backup')`);
+  assert.equal(
+    await evaluate(`document.querySelector('#drive-backup').value`),
+    "latest_snapshot",
+  );
+  await evaluate(
+    `const input=document.querySelector('#drive-backup');input.value='older_snapshot';input.dispatchEvent(new Event('change'));`,
+  );
+  await sleep(100);
+  assert.equal(
+    await evaluate(`document.querySelector('#drive-backup').value`),
+    "older_snapshot",
+  );
+  assert.equal(
+    await evaluate(`document.querySelector('#verify-drive').disabled`),
+    true,
+    "Backup password is required before verification",
+  );
+  await action(
+    `a.backup.google.status.set(window.originalGoogleStatus);a.backup.google.files.set([]);a.backup.google.listed.set(false);a.preferences.set(window.originalPreferences);a.openTool('diary');delete window.originalGoogleStatus;delete window.originalPreferences;`,
   );
   // A local backend outage must preserve encrypted edits and resume without a manual save.
   await action(
@@ -429,6 +477,8 @@ try {
       mobile: false,
     });
     await action(`a.tools.set('backup');`);
+    await waitFor(`!!document.querySelector('#file-backups')`);
+    await evaluate(`document.querySelector('#file-backups').open=true`);
     await waitFor(`!!document.querySelector('#export-backup')`);
     const desktop = await send("Page.captureScreenshot", { format: "png" });
     writeFileSync(
@@ -597,7 +647,9 @@ try {
       "Backend reconnected to recreated disposable database",
     );
     await reload();
-    await waitFor(`!!document.querySelector('#setup-login')`);
+    await waitFor(`!!document.querySelector('#restore-diary')`);
+    await evaluate(`document.querySelector('#restore-diary').click()`);
+    await waitFor(`!!document.querySelector('#import-file')`);
     const secret =
       mode === "passphrase" ? "recovered synthetic passphrase" : replacement;
     await action(
@@ -688,7 +740,7 @@ try {
   assert.equal(await action(`return a.diary.states().size;`), 0);
   assert.ok((await action(`return a.vault.error();`)).includes("integrity"));
   console.log(
-    `PASS: mood/tags encrypted API and backup restore, optional streak, backup health, offline durable drafts and automatic reconnect, simpler autosave controls, desktop viewport fit, long-text editor scrolling, independent settings/mobile navigation, setup, encrypted API/IndexedDB, wrong keys, second-tab exclusion, lock/reload drafts, passphrase change, recovery rotation, auto-lock, storage failure, login change and tampering; Phase 3 local search, occupied trash restore/purge, encrypted file download/emergency export, failed-safety preservation, invalid-file preservation, stale-safety rejection, lost-commit retry and clean-database recovery with BOTH passphrase and recovery key. Setup KDF flow: ${Math.round(setup.ms)} ms.`,
+    `PASS: guided Drive UI selection (mock metadata), mood/tags encrypted API and backup restore, optional streak, backup health, offline durable drafts and automatic reconnect, simpler autosave controls, desktop viewport fit, long-text editor scrolling, independent settings/mobile navigation, setup, encrypted API/IndexedDB, wrong keys, second-tab exclusion, lock/reload drafts, passphrase change, recovery rotation, auto-lock, storage failure, login change and tampering; Phase 3 local search, occupied trash restore/purge, encrypted file download/emergency export, failed-safety preservation, invalid-file preservation, stale-safety rejection, lost-commit retry and clean-database recovery with BOTH passphrase and recovery key. Setup KDF flow: ${Math.round(setup.ms)} ms.`,
   );
 } finally {
   ws.close();

@@ -1,9 +1,10 @@
 @if (v.recoveryPurpose()) {
   <section class="panel" aria-label="Save recovery key">
-    <h2>Save your recovery key offline</h2>
+    <span class="step-label">NEW DIARY · STEP 2 OF 2</span>
+    <h2>Keep a way back in.</h2>
     <p>
-      Store this key outside this browser. Anyone with this key and a vault copy can decrypt your
-      diary. We cannot recover a lost passphrase without it.
+      Save this recovery key somewhere safe outside the app. It lets you open your diary if you
+      forget your diary password. Keep it private.
     </p>
     <code id="recovery-key">{{ v.recoverySecret() }}</code>
     @if (v.recoveryPurpose() === 'rotate') {
@@ -14,7 +15,7 @@
     }
     <form (ngSubmit)="verify()" autocomplete="off">
       <label
-        >Type the complete key from your offline copy<input
+        >Enter the recovery key you saved<input
           id="recovery-confirm"
           name="recovery"
           type="password"
@@ -24,91 +25,132 @@
       ><label
         ><input name="offline" type="checkbox" [(ngModel)]="savedOffline" /> I saved the key outside
         this browser.</label
-      ><button [disabled]="v.busy() || !savedOffline">Verify and finish</button
+      ><button [disabled]="v.busy() || !savedOffline">Open my diary</button
       ><button type="button" (click)="cancel()" [disabled]="v.busy()">Cancel</button>
     </form>
   </section>
 } @else if (v.state() === 'checking' || v.state() === 'opening') {
   <section class="panel">
-    <h2>{{ v.state() === 'opening' ? 'Opening encrypted vault…' : 'Checking local database…' }}</h2>
-    <button (click)="retry()" [disabled]="v.busy()">Retry</button>
+    <h2>{{ v.state() === 'opening' ? 'Opening your diary…' : 'Opening WebDairy…' }}</h2>
+    @if (v.error()) {
+      <p>Keep WebDairy and PostgreSQL running on this computer, then try again.</p>
+      <button class="primary" (click)="retry()" [disabled]="v.busy()">Try again</button>
+    }
   </section>
 } @else if (v.state() === 'setup') {
-  <section class="panel">
-    <h2>Google login</h2>
-    @if (google.status().configured) {
-      @if (v.auth.googleSetupReady()) {
-        <p>
-          Signed in as {{ google.status().email }}. Create a vault below or restore a Drive backup.
-        </p>
-      } @else {
-        <button type="button" (click)="google.connect('login')" [disabled]="google.connecting()">
-          Sign in with Google
-        </button>
-      }
-    } @else {
+  @if (startup.choice() === 'welcome') {
+    <section class="panel welcome-panel" aria-label="Welcome">
+      <span class="step-label">YOUR PERSONAL DIARY</span>
+      <h2>A little space for your day.</h2>
       <p>
-        Google login is optional. Configure your Desktop OAuth client using docs/google-setup.md to
-        enable it.
+        Write privately on this computer. Connect Google to keep a backup and bring your diary to
+        another laptop.
       </p>
-    }
-    @if (google.error()) {
-      <p role="alert">{{ google.error() }}</p>
-    }
-    @if (google.connecting()) {
-      <p>Finish sign-in in the Google window.</p>
-      <button (click)="google.cancel()">Cancel</button>
-    }
-  </section>
-  <section class="panel" aria-label="Set up vault">
-    <h2>Create your local vault</h2>
-    <p>
-      {{
-        v.auth.googleSetupReady()
-          ? 'Google handles login. Choose a vault passphrase to encrypt your diary.'
-          : 'Use two different passwords. Login allows backend access; the vault passphrase decrypts your diary.'
-      }}
-    </p>
-    <form (ngSubmit)="setup()">
-      @if (!v.auth.googleSetupReady()) {
+      @if (v.auth.googleSetupReady()) {
+        <p class="account-badge">Connected as {{ google.status().email }}</p>
+        <button class="primary wide" id="welcome-restore" (click)="startup.choice.set('restore')">
+          Find my Google backup
+        </button>
+      } @else {
+        <button
+          class="primary wide"
+          id="google-login"
+          (click)="google.connect('login')"
+          [disabled]="!google.status().configured || google.connecting()"
+        >
+          Continue with Google
+        </button>
+        @if (!google.status().configured) {
+          <p class="hint">
+            Google connection is not set up for this installation yet. You can still write and keep
+            file backups.
+          </p>
+        }
+      }
+      @if (google.error()) {
+        <p role="alert">{{ google.error() }}</p>
+      }
+      @if (google.connecting()) {
+        <p role="status">Finish sign-in in the Google window.</p>
+        <button (click)="google.cancel()">Cancel sign-in</button>
+      }
+      <div class="welcome-options">
+        <button id="start-new-diary" (click)="startup.choice.set('create')">
+          Start a new diary
+        </button>
+        <button id="restore-diary" (click)="startup.choice.set('restore')">Restore my diary</button>
+      </div>
+      <p class="hint">Your entries are encrypted. Google backup needs your permission.</p>
+    </section>
+  } @else if (startup.choice() === 'create') {
+    <section class="panel" aria-label="Set up vault">
+      <button class="text-button" (click)="startup.choice.set('welcome')" [disabled]="v.busy()">
+        ← Back
+      </button>
+      <span class="step-label">NEW DIARY · STEP 1 OF 2</span>
+      <h2>Make this diary yours.</h2>
+      <p>
+        Choose a diary password to protect your writing. You will use it to unlock this diary and
+        restore backups.
+      </p>
+      <form (ngSubmit)="setup()">
+        @if (!v.auth.googleSetupReady()) {
+          <label
+            >Login password (12+ characters)<input
+              id="setup-login"
+              name="login"
+              type="password"
+              [(ngModel)]="loginPassword"
+              autocomplete="new-password"
+              minlength="12"
+              required
+          /></label>
+          <p class="hint">
+            Login opens the app. Use a different diary password below to keep your writing
+            encrypted.
+          </p>
+        }
         <label
-          >Login password (at least 12 characters)<input
-            id="setup-login"
-            name="login"
+          >Diary password (12+ characters)<input
+            id="setup-pass"
+            name="pass"
             type="password"
-            [(ngModel)]="loginPassword"
+            [(ngModel)]="passphrase"
             autocomplete="new-password"
             minlength="12"
             required
         /></label>
-      }
-      <label
-        >Vault passphrase (at least 12 characters)<input
-          id="setup-pass"
-          name="pass"
-          type="password"
-          [(ngModel)]="passphrase"
-          autocomplete="new-password"
-          minlength="12"
-          required /></label
-      ><label
-        >Confirm vault passphrase<input
-          id="setup-confirm"
-          name="confirm"
-          type="password"
-          [(ngModel)]="confirmation"
-          autocomplete="new-password"
-          required /></label
-      ><button [disabled]="v.busy()">Create recovery key</button>
-    </form>
-  </section>
+        <label
+          >Confirm diary password<input
+            id="setup-confirm"
+            name="confirm"
+            type="password"
+            [(ngModel)]="confirmation"
+            autocomplete="new-password"
+            required
+        /></label>
+        <button class="primary wide" [disabled]="v.busy()">Continue</button>
+      </form>
+    </section>
+  }
 } @else if (v.state() === 'login') {
   <section class="panel" aria-label="Login">
-    <h2>Log in to WebDairy</h2>
-    @if (google.status().configured) {
-      <button (click)="google.connect('login')" [disabled]="google.connecting()">
-        Sign in with Google
-      </button>
+    <span class="step-label">WELCOME BACK</span>
+    <h2>Your diary is waiting.</h2>
+    <button
+      class="primary wide"
+      id="google-login"
+      (click)="google.connect('login')"
+      [disabled]="!google.status().configured || google.connecting()"
+    >
+      Continue with Google
+    </button>
+    @if (!google.status().configured) {
+      <p class="hint">Google connection is not set up yet. Use your login password.</p>
+    } @else {
+      <p class="hint">
+        Already using a login password? Sign in below and connect Google in Settings first.
+      </p>
     }
     @if (google.error()) {
       <p role="alert">{{ google.error() }}</p>
@@ -128,15 +170,20 @@
           required /></label
       ><button [disabled]="v.busy()">Log in</button>
     </form>
-    <p class="hint">
-      Forgot login? The local administrator can run
-      <code>go run ./cmd/diary -reset-login</code> from backend. This does not reset the vault
-      passphrase.
-    </p>
+    <details class="security-section">
+      <summary>Forgot your login password?</summary>
+      <p>
+        Use the Reset login shortcut in your WebDairy folder. Your encrypted diary password stays
+        the same.
+      </p>
+      <p class="hint">
+        For a source checkout: run <code>go run ./cmd/diary -reset-login</code> from backend.
+      </p>
+    </details>
   </section>
 } @else if (v.state() === 'locked') {
   <section class="panel" aria-label="Unlock vault">
-    <h2>{{ recovering() ? 'Recover your vault' : 'Vault locked' }}</h2>
+    <h2>{{ recovering() ? 'Recover your diary' : 'Welcome back.' }}</h2>
     @if (recovering()) {
       <form (ngSubmit)="recover()" autocomplete="off">
         <label
@@ -148,7 +195,7 @@
             autocomplete="off"
             required /></label
         ><label
-          >New vault passphrase<input
+          >New diary password<input
             id="recover-pass"
             name="pass"
             type="password"
@@ -157,7 +204,7 @@
             minlength="12"
             required /></label
         ><label
-          >Confirm new vault passphrase<input
+          >Confirm new diary password<input
             id="recover-confirm"
             name="confirm"
             type="password"
@@ -170,7 +217,7 @@
     } @else {
       <form (ngSubmit)="unlock()">
         <label
-          >Vault passphrase<input
+          >Diary password<input
             id="unlock-pass"
             name="pass"
             type="password"
@@ -183,15 +230,18 @@
         </button>
       </form>
     }
-    <p class="hint">
-      The vault passphrase stays in this browser. Wrong keys never create a replacement vault.
-    </p>
-    <button (click)="logout()" [disabled]="v.busy()">Log out</button>
+    <p class="hint">Enter your diary password to continue writing.</p>
+    <details class="security-section">
+      <summary>More options</summary>
+      <button (click)="startup.restoreLocked.set(true)" [disabled]="v.busy()">
+        Restore a backup
+      </button>
+      <button (click)="logout()" [disabled]="v.busy()">Log out</button>
+    </details>
   </section>
 } @else if (settings()) {
   <section class="panel" aria-label="Vault settings">
-    <h2>Vault settings</h2>
-    <p class="hint">WebDairy · Phase 3 local release · Backup format 1</p>
+    <h2>Settings</h2>
     <div class="google-account">
       <h3>Google account</h3>
       @if (google.status().offline_password_available) {
@@ -199,7 +249,7 @@
           <summary>Optional offline login password</summary>
           <p>
             Google sign-in needs internet for a new session. Add a local login password to open the
-            app offline; your vault passphrase stays separate.
+            app offline; your diary password stays separate.
           </p>
           <form (ngSubmit)="addOfflinePassword()">
             <label
@@ -224,14 +274,26 @@
         </details>
       }
       @if (google.status().linked) {
-        <p>Linked: {{ google.status().email }}. Google login does not unlock the vault.</p>
+        <p>Connected: {{ google.status().email }}</p>
       } @else if (google.status().configured) {
         <button (click)="google.connect('link')" [disabled]="google.connecting()">
-          Link Google account
+          Connect Google account
         </button>
         <p>Your existing local login remains available.</p>
       } @else {
-        <p>Set up Desktop OAuth first; see docs/google-setup.md.</p>
+        <p>Google connection has not been set up for this installation.</p>
+        <details>
+          <summary>How to enable Google</summary>
+          <p>
+            Close WebDairy, open the Setup WebDairy shortcut and add your Google connection details.
+          </p>
+          <a
+            href="https://github.com/akashtiwari2/WebDairy/blob/main/docs/google-setup.md"
+            target="_blank"
+            rel="noopener noreferrer"
+            >Google setup guide</a
+          >
+        </details>
       }
       @if (google.error()) {
         <p role="alert">{{ google.error() }}</p>
@@ -297,17 +359,17 @@
       /></label>
     </div>
     <details class="security-section">
-      <summary>Change vault passphrase</summary>
+      <summary>Change diary password</summary>
       <form (ngSubmit)="changePass()">
         <label
-          >Current vault passphrase<input
+          >Current diary password<input
             name="current"
             type="password"
             [(ngModel)]="current"
             autocomplete="off"
             required /></label
         ><label
-          >New vault passphrase<input
+          >New diary password<input
             name="pass"
             type="password"
             [(ngModel)]="passphrase"
@@ -315,20 +377,20 @@
             minlength="12"
             required /></label
         ><label
-          >Confirm new vault passphrase<input
+          >Confirm new diary password<input
             name="confirm"
             type="password"
             [(ngModel)]="confirmation"
             autocomplete="new-password"
             required /></label
-        ><button [disabled]="v.busy()">Change passphrase</button>
+        ><button [disabled]="v.busy()">Change diary password</button>
       </form>
     </details>
     <details class="security-section">
       <summary>Replace recovery key</summary>
       <form (ngSubmit)="rotate()">
         <label
-          >Current vault passphrase<input
+          >Current diary password<input
             name="current"
             type="password"
             [(ngModel)]="current"
@@ -340,7 +402,7 @@
     <details class="security-section">
       <summary>Change login password</summary>
       <form (ngSubmit)="changeLogin()">
-        <p>This locks the vault and logs out every session.</p>
+        <p>This locks your diary and signs out every session.</p>
         <label
           >Current login password<input
             name="current-login"

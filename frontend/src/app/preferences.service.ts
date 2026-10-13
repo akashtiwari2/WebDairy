@@ -13,7 +13,7 @@ export const defaults: Preferences = {
   theme: 'system',
   trash_days: 30,
   show_streak: true,
-  backup_frequency: 'manual',
+  backup_frequency: 'daily',
   backup_keep: 30,
 };
 export function validPreferences(value: Preferences): boolean {

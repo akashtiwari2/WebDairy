@@ -123,3 +123,23 @@ with a verified temporary Google proof; no new local login password is then need
 Explicit local mode preserves the supplied local password even if a proof exists.
 Existing-diary replacement keeps its login identity and still requires a safety copy.
 `GET /api/desktop` identifies an active embedded-UI instance; it exposes no data.
+
+## Packaged local browser setup
+
+The executable binds only 127.0.0.1:8080 and initially serves an isolated setup
+handler until PostgreSQL connects and migrations succeed. No diary/auth API is
+mounted on this handler. `GET /setup/status` exposes only readiness, busy state,
+a sanitized message and whether a connection is configured. Passwords/DSNs are
+never returned. The setup HTML has a nonce-based CSP; mutation requires that
+random startup token in `X-WebDairy-Setup`, exact local Origin/Host and JSON.
+
+`POST /setup/connect {user,password,database,port,create,google_id,google_secret}`
+accepts only a loopback PostgreSQL connection. Creation is limited to the named
+missing database; system databases and unrelated occupied databases are rejected.
+Missing schema migrations apply before settings are atomically saved with private
+file permissions where supported. Blank Google fields preserve existing values;
+process overrides cannot be silently changed. `POST /setup/retry` retries saved
+settings. Concurrent initialization is serialized. Once ready, the handler serves
+the original authenticated API/frontend; connection mutations are rejected.
+`-configure` opens setup explicitly on the next launch; an existing running app
+must be closed first. No PostgreSQL service is auto-started, modified or stopped.

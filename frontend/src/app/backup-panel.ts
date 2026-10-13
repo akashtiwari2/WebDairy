@@ -1,4 +1,5 @@
-import { Component, effect, inject, signal } from '@angular/core';
+import { StartupService } from './startup.service';
+import { Component, computed, effect, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { BackupService } from './backup.service';
 import { VaultService } from './vault.service';
@@ -8,7 +9,16 @@ import { VaultService } from './vault.service';
   templateUrl: './backup-panel.html',
 })
 export class BackupPanel {
+  readonly startup = inject(StartupService);
+  readonly driveRestore = signal(false);
   readonly b = inject(BackupService);
+  readonly sortedFiles = computed(() =>
+    [...this.b.google.files()].sort(
+      (a, b) =>
+        Date.parse(b.appProperties?.snapshot_at || b.createdTime) -
+        Date.parse(a.appProperties?.snapshot_at || a.createdTime),
+    ),
+  );
   readonly v = inject(VaultService);
   readonly fileName = signal('');
   file?: File;
@@ -19,6 +29,10 @@ export class BackupPanel {
   replaceConfirmed = false;
   readonly driveId = signal('');
   constructor() {
+    effect(() => {
+      const files = this.sortedFiles();
+      if (!files.some((f) => f.id === this.driveId())) this.driveId.set(files[0]?.id ?? '');
+    });
     effect(() => {
       this.v.state();
       this.b.preview();
@@ -35,6 +49,19 @@ export class BackupPanel {
           'Browser backup storage is unavailable. Downloaded files remain available.',
         ),
       );
+  }
+  back() {
+    this.b.clearPreview();
+    this.startup.choice.set('welcome');
+    this.startup.restoreLocked.set(false);
+  }
+  backToCreate() {
+    this.b.clearPreview();
+    this.startup.choice.set('create');
+  }
+  switchKey() {
+    this.secret = '';
+    this.mode = this.mode === 'passphrase' ? 'recovery' : 'passphrase';
   }
   choose(event: Event) {
     const input = event.target as HTMLInputElement;

@@ -462,3 +462,147 @@ main .notice button {
     font-size: 16px;
   }
 }
+
+/* Focused first-run and daily-use surfaces. Advanced tools stay out of the way. */
+.step-label {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  font-weight: 650;
+  margin: 10px 0;
+}
+main .primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+  padding: 11px 18px;
+  font-weight: 600;
+}
+main .wide {
+  width: 100%;
+  margin: 8px 0;
+}
+main .text-button {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+  padding-left: 0;
+}
+.welcome-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 20px;
+}
+.welcome-options button {
+  margin-right: 0;
+}
+.account-badge {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.advanced-section {
+  border-top: 1px solid var(--border);
+  padding: 18px 0;
+  margin-top: 16px;
+}
+.advanced-section summary {
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink);
+  padding: 4px 0;
+}
+.backup-page {
+  max-width: 760px;
+  padding: 32px;
+}
+.backup-page h2 {
+  margin: 8px 0 12px;
+}
+.backup-page p {
+  font-size: 14px;
+  color: var(--muted);
+}
+.backup-page .hint {
+  font-size: 12px;
+}
+.section-description {
+  margin-bottom: 26px;
+}
+.backup-summary {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0;
+}
+.backup-summary p {
+  margin: 4px 0;
+  overflow-wrap: anywhere;
+}
+.connection-dot {
+  width: 10px;
+  height: 10px;
+  background: var(--accent);
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.backup-controls {
+  align-items: center;
+}
+.backup-controls label {
+  flex: 1;
+}
+.restore-card {
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--soft);
+  margin: 20px 0;
+}
+.restore-card h3 {
+  margin-top: 0;
+}
+.inline-error {
+  color: var(--danger) !important;
+}
+.startup-message {
+  max-width: 760px;
+  margin: 0 auto 20px;
+}
+app-auth-panel .panel {
+  box-shadow: 0 8px 32px #253d3206;
+}
+main .primary:disabled {
+  opacity: 0.5;
+}
+@media (max-width: 760px) {
+  .backup-page {
+    padding: 22px;
+  }
+  app-auth-panel .panel {
+    padding: 24px;
+    margin-top: 8px;
+  }
+  .welcome-options {
+    grid-template-columns: 1fr;
+  }
+  .backup-controls {
+    display: flex;
+  }
+}
+
+main .entry-metadata input,
+main .entry-metadata select {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--paper);
+  color: var(--ink);
+}
+main .panel button.primary,
+html[data-theme='dark'] main button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}

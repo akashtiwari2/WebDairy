@@ -129,3 +129,12 @@ The backend loads `backend/.env` automatically when run from `backend`. Copy
 [the template](backend/.env.example) once and set your own connection. Explicit
 process variables override the file; restart Go after edits. Never commit credentials.
 Generated binaries, `.env` files, logs and diary exports are ignored.
+
+### Simple browser launcher with PostgreSQL
+
+WebDairy remains a browser app backed by local PostgreSQL. Packaged launchers embed
+frontend/migrations and open the browser; first-run connection setup is in the browser,
+with start/setup/reset shortcuts. No Go/Node is needed to run a package. New backup
+preferences default to Daily; Google credentials and Drive permission are still required.
+See [daily-use guide](docs/daily-use.md) for setup, upgrades and one-laptop-at-a-time restore.
+No Tauri/native window, SQLite migration, hosted service or closed-app backup is included.

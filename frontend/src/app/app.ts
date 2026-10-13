@@ -1,3 +1,4 @@
+import { StartupService } from './startup.service';
 import { moods, Mood } from './vault-crypto';
 import { parseTags, writingStreak } from './writing-insights';
 import { Component, DestroyRef, computed, effect, inject, signal } from '@angular/core';
@@ -22,6 +23,7 @@ export function todayInKolkata(now = new Date()): string {
   host: { '[class.diary-mode]': 'diaryView()' },
 })
 export class App {
+  readonly startup = inject(StartupService);
   readonly preferences = inject(PreferencesService);
   readonly tools = signal<'diary' | 'library' | 'backup'>('diary');
   readonly calendarOpen = signal(!window.matchMedia('(max-width: 760px)').matches);
@@ -32,6 +34,27 @@ export class App {
   readonly settings = signal(false);
   readonly moods = moods;
   readonly tagError = signal('');
+  readonly backupLabel = computed(() => {
+    if (!this.backup.google.status().drive_connected) return 'Set up backup';
+    if (
+      this.preferences.value().backup_frequency === 'manual' &&
+      ['changed', 'missing', 'overdue'].includes(this.backup.health().kind)
+    )
+      return 'Back up now';
+    return (
+      (
+        {
+          recent: 'Backed up',
+          changed: 'Backup scheduled',
+          uploading: 'Backing up…',
+          pending: 'Backup pending',
+          overdue: 'Backup due',
+          missing: 'First backup pending',
+          checking: 'Checking backup…',
+        } as Record<string, string>
+      )[this.backup.health().kind] ?? 'Check backup'
+    );
+  });
   readonly streak = computed(() => writingStreak(this.diary.dates(), this.today()));
   readonly diaryView = computed(
     () =>
@@ -47,7 +70,7 @@ export class App {
     const state = this.diary.state(this.selected());
     return state.trashed ? { ...state, title: '', body: '' } : state;
   });
-  readonly backend = signal('Checking database…');
+  readonly backend = signal('');
   readonly dateLabel = computed(() =>
     new Intl.DateTimeFormat('en-IN', { dateStyle: 'full', timeZone: 'UTC' }).format(
       new Date(`${this.selected()}T12:00:00Z`),
@@ -83,7 +106,7 @@ export class App {
           saved: 'Saved',
           failed:
             this.diary.connectionLost() && this.entry().localDraftReady
-              ? 'Saved on this device · pending database save'
+              ? 'Saved on this device · retrying'
               : this.entry().deleteRequested
                 ? 'Delete failed'
                 : this.entry().loaded
@@ -141,11 +164,11 @@ export class App {
       const result = await response.json();
       this.backend.set(
         response.ok && result.database === 'ready'
-          ? 'Backend & PostgreSQL ready'
-          : 'Database unavailable',
+          ? ''
+          : 'Diary storage is unavailable. Keep PostgreSQL running and try again.',
       );
     } catch {
-      this.backend.set('Backend unavailable');
+      this.backend.set('WebDairy is not responding. Keep the local program running and try again.');
     }
   }
   edit(title: string, body: string) {

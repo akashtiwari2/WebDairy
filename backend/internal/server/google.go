@@ -79,8 +79,8 @@ func mountGoogle(e *echo.Echo, s *private.Store, g *cloud.Google, authenticate e
 		return c.NoContent(204)
 	}, authenticate)
 	e.POST("/api/google/start", func(c echo.Context) error {
-		if g == nil {
-			return googleFailure(c, errors.New("Google OAuth is not configured"))
+		if g == nil || g.ClientID == "" {
+			return googleFailure(c, errors.New("Google connection has not been set up for this installation"))
 		}
 		if c.Request().Host != "127.0.0.1:4200" && c.Request().Host != "127.0.0.1:8080" {
 			return googleFailure(c, errors.New("Open WebDairy at http://127.0.0.1:4200 (development) or http://127.0.0.1:8080 (desktop) before Google sign-in"))

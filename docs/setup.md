@@ -1,5 +1,10 @@
 # Setup and troubleshooting
 
+For the packaged browser launcher (no Go/Node), follow [daily use](daily-use.md).
+PostgreSQL is retained. The first-run browser wizard saves the local connection;
+Start-WebDairy/Setup-WebDairy/Reset-login shortcuts are included. The instructions
+below are for working with the source checkout.
+
 ## Windows or Mac, using installed PostgreSQL
 
 Use your cloned WebDairy folder. Install Go 1.27.1 and Node 24.15+ (validated 24.19.0),

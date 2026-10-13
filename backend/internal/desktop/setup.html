@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Open WebDairy</title>
+<style nonce="{{.Token}}">
+*{box-sizing:border-box}body{margin:0;background:#f7f8f3;color:#253d32;font:15px system-ui,-apple-system,sans-serif}header{padding:20px 28px;background:#fff;border-bottom:1px solid #dfe7df;font-size:22px;font-weight:700}main{max-width:520px;margin:40px auto;padding:30px;background:#fff;border:1px solid #dfe7df;border-radius:16px}h1{font:30px Georgia,serif;margin:10px 0}p{color:#65796c;line-height:1.6}label{display:block;margin:16px 0}input{display:block;width:100%;padding:11px;border:1px solid #c8d6c9;border-radius:8px;margin-top:6px;font:inherit}input[type=checkbox]{display:inline;width:auto}button{padding:12px 18px;border:0;border-radius:8px;background:#305d47;color:white;font:inherit;cursor:pointer}button:disabled{opacity:.5;cursor:default}button:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid #527f5c;outline-offset:3px}details{border-top:1px solid #dfe7df;padding-top:16px;margin-top:20px}summary{cursor:pointer;color:#65796c}.hint{font-size:12px}#message{padding:12px;background:#fff5de;border-radius:8px;color:#71552b}#message:empty{display:none}[hidden]{display:none!important}.full{width:100%}.secondary{background:#eef3ed;color:#253d32;margin-bottom:12px}.step{font-size:10px;letter-spacing:1.5px;color:#65796c}a{color:#305d47}@media(max-width:600px){main{margin:20px 16px;padding:24px}}
+</style></head><body><header>WebDairy</header><main>
+<span class="step">ON THIS COMPUTER</span><h1 id="heading">Set up diary storage.</h1>
+<p id="intro">Enter your installed PostgreSQL login once. WebDairy remembers this connection and opens your diary next time.</p>
+<p id="message" role="alert">{{.Status.Message}}</p>
+<div id="saved" {{if not .Status.Configured}}hidden{{end}}><button id="retry" class="secondary full">Try saved connection again</button><p class="hint">If PostgreSQL is stopped, start it first. Retrying keeps your existing diary.</p></div>
+<form id="connection" autocomplete="off">
+<label>PostgreSQL username<input id="user" name="user" value="postgres" required autocomplete="username"></label>
+<label>PostgreSQL password<input id="password" name="password" type="password" autocomplete="current-password"><span class="hint">The password you chose when installing PostgreSQL; not your Google or diary password.</span></label>
+<label>Diary database<input id="database" name="database" value="diary_db" pattern="[a-zA-Z_][a-zA-Z0-9_]{0,62}" maxlength="63" required></label>
+<label><input id="create" name="create" type="checkbox" checked> Create this database if it does not exist.</label>
+<p class="hint">Already have a diary? Use its existing database name. WebDairy keeps its entries and applies only missing updates.</p>
+<details><summary>Connection options</summary><label>PostgreSQL port<input id="port" type="number" value="5432" min="1" max="65535" required></label><p class="hint">This connection stays on your computer (127.0.0.1). WebDairy does not install, stop or change your PostgreSQL service.</p></details>
+<details><summary>Google connection (optional, one-time setup)</summary><p class="hint">A Google Desktop OAuth client enables sign-in and Drive backup. Leave both fields empty to keep existing Google settings. Ordinary sign-in and Drive API usage are available without paid hosting, within Google's quotas.</p><label>Google client ID<input id="google-id" autocomplete="off"></label><label>Google client secret<input id="google-secret" type="password" autocomplete="off"></label><a href="https://github.com/akashtiwari2/WebDairy/blob/main/docs/google-setup.md" target="_blank" rel="noopener noreferrer">How to create your Google connection</a></details>
+<p class="hint">Connection details are saved locally for this installation. They are not sent to Google.</p>
+<button id="connect" class="full">Connect and open diary</button>
+</form><p id="opening" role="status" hidden>Opening your diary…</p>
+</main><script nonce="{{.Token}}">
+const token={{.Token}},form=document.getElementById('connection'),message=document.getElementById('message');
+let submitting=false;
+function busy(value){for(const b of document.querySelectorAll('button'))b.disabled=value;document.getElementById('opening').hidden=!value}
+async function send(path,body){submitting=true;busy(true);message.textContent='';try{const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-WebDairy-Setup':token},body:JSON.stringify(body??{})});const data=await r.json();if(!r.ok)throw Error(data.message||'Could not connect. Try again.');if(data.ready)location.replace('/');else message.textContent='Enter your PostgreSQL connection below.'}catch(e){message.textContent=e.message}finally{form.password.value='';document.getElementById('google-secret').value='';submitting=false;busy(false)}}
+form.addEventListener('submit',e=>{e.preventDefault();if(submitting)return;send('/setup/connect',{user:form.user.value,password:form.password.value,database:form.database.value,port:Number(document.getElementById('port').value),create:form.create.checked,google_id:document.getElementById('google-id').value.trim(),google_secret:document.getElementById('google-secret').value})});
+document.getElementById('retry').addEventListener('click',()=>send('/setup/retry'));
+async function poll(){if(submitting)return;try{const r=await fetch('/setup/status',{cache:'no-store'});const data=await r.json();if(data.ready){location.replace('/');return}busy(data.busy);form.hidden=data.busy;document.getElementById('saved').hidden=!data.configured||data.busy;if(data.message)message.textContent=data.message}catch{message.textContent='WebDairy stopped. Open the WebDairy shortcut again.'}}
+poll();setInterval(poll,1500);
+</script></body></html>

@@ -1,3 +1,4 @@
+import { StartupService } from './startup.service';
 import { GoogleService } from './google.service';
 import { Component, input, signal, inject, effect } from '@angular/core';
 import { FormsModule } from '@angular/forms';
@@ -13,16 +14,16 @@ import { VaultService } from './vault.service';
         display: block;
       }
       .panel {
-        max-width: 560px;
-        padding: 28px;
-        background: white;
-        border: 1px solid #d6dfd1;
+        max-width: 480px;
+        padding: 32px;
+        background: var(--paper);
+        border: 1px solid var(--border);
         border-radius: 14px;
-        margin: 0 auto 24px;
+        margin: 24px auto;
       }
       h2 {
         font:
-          28px Georgia,
+          30px Georgia,
           serif;
       }
       label {
@@ -36,7 +37,7 @@ import { VaultService } from './vault.service';
         padding: 10px;
         box-sizing: border-box;
         margin-top: 6px;
-        border: 1px solid #9eae9a;
+        border: 1px solid var(--border);
         border-radius: 6px;
       }
       input[type='checkbox'] {
@@ -46,10 +47,10 @@ import { VaultService } from './vault.service';
       button {
         padding: 10px 16px;
         margin: 6px 6px 6px 0;
-        border: 1px solid #9eae9a;
+        border: 1px solid var(--border);
         border-radius: 6px;
-        background: #edf2e9;
-        color: #34523b;
+        background: var(--soft);
+        color: var(--ink);
       }
       p {
         line-height: 1.6;
@@ -59,17 +60,18 @@ import { VaultService } from './vault.service';
         display: block;
         overflow-wrap: anywhere;
         padding: 16px;
-        background: #f0eede;
+        background: var(--soft);
         user-select: all;
       }
       .hint {
-        color: #5d6659;
+        color: var(--muted);
         font-size: 12px;
       }
     `,
   ],
 })
 export class AuthPanel {
+  readonly startup = inject(StartupService);
   readonly google = inject(GoogleService);
   readonly preferences = inject(PreferencesService);
   setPreference(key: keyof Preferences, value: any) {

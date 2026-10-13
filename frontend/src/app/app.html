@@ -1,8 +1,6 @@
 <header class="app-header">
-  <a class="brand" href="/" aria-label="WebDairy home"
-    ><span class="mark">W</span> WebDairy <span class="tag">DEVELOPMENT</span></a
-  >
-  <span class="health" role="status">{{ backend() }}</span>
+  <a class="brand" href="/" aria-label="WebDairy home"><span class="mark">W</span> WebDairy</a>
+
   @if (vault.state() === 'unlocked') {
     <nav aria-label="Diary tools">
       <button (click)="openTool('diary')" [attr.aria-pressed]="tools() === 'diary' && !settings()">
@@ -32,13 +30,18 @@
   }
 </header>
 <main [class.diary-view]="diaryView()">
+  @if (backend() && vault.state() !== 'unlocked') {
+    <div class="save-message startup-message" role="status">
+      {{ backend() }} <button (click)="checkHealth()">Check again</button>
+    </div>
+  }
   @if (vault.error()) {
     <div class="save-message" role="alert">{{ vault.error() }}</div>
   }
   <app-auth-panel [settings]="settings()" />
   @if (
-    vault.state() === 'setup' ||
-    (vault.state() === 'locked' && vault.auth.authenticated()) ||
+    (vault.state() === 'setup' && startup.choice() === 'restore' && !vault.recoveryPurpose()) ||
+    (vault.state() === 'locked' && startup.restoreLocked() && vault.auth.authenticated()) ||
     (vault.state() === 'unlocked' &&
       tools() === 'backup' &&
       !settings() &&
@@ -79,13 +82,10 @@
             : 'No internet · local writing is available.'
         }}
         @if (preferences.value().show_streak !== false) {
-          <span id="writing-streak">
-            · {{ streak().current }} day streak · Best {{ streak().best }} ·
-            {{ streak().total }} written days</span
-          >
+          <span id="writing-streak"> · {{ streak().current }} day streak</span>
         }
       </span>
-      <button id="backup-health" (click)="openTool('backup')">{{ backup.health().label }}</button>
+      <button id="backup-health" (click)="openTool('backup')">{{ backupLabel() }}</button>
     </div>
     <div class="workspace" [class.calendar-hidden]="!calendarOpen()">
       @if (calendarOpen()) {
@@ -141,7 +141,7 @@
           <div class="save-message" role="alert">
             {{
               diary.connectionLost() && entry().localDraftReady
-                ? 'Encrypted draft saved on this device. Keep the app open; it will retry when the backend returns. Reopening or unlocking needs the local backend.'
+                ? 'Your draft is saved on this device. Keep WebDairy open; saving will retry when diary storage is available.'
                 : entry().error
             }}
             @if (entry().status === 'failed') {
@@ -201,7 +201,7 @@
             </select></label
           >
           <label
-            >Tags <small>(comma-separated; Enter or leave field to apply)</small>
+            >Tags
             <input
               id="entry-tags"
               #tags
@@ -209,7 +209,8 @@
               (change)="setTags(tags.value)"
               (keydown.enter)="setTags(tags.value)"
               maxlength="350"
-              placeholder="Work, Travel"
+              placeholder="Work, Travel…"
+              title="Separate tags with commas"
               [disabled]="!editable()"
               aria-describedby="tag-error"
             />
@@ -238,13 +239,12 @@
           }
         </div>
         <div class="editor-bottom">
-          <span>Plain text. A little room to breathe.</span
-          ><span>{{ entry().body.length }} characters</span>
+          <span>Your writing stays private.</span><span>{{ entry().body.length }} characters</span>
         </div>
       </section>
     </div>
     <footer>
-      Changes save automatically <span>Timezone: {{ preferences.value().timezone }}</span>
+      <span>Saved on this computer · encrypted backups on Google Drive when connected</span>
     </footer>
   }
 </main>

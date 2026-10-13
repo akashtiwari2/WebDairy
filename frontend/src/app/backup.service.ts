@@ -109,7 +109,7 @@ export class BackupService {
         };
       const savedAt = this.lastDriveSnapshot();
       if (!savedAt) return { label: 'No Drive backup yet', savedAt: '', kind: 'missing' };
-      const frequency = this.preferences.value().backup_frequency ?? 'manual';
+      const frequency = this.preferences.value().backup_frequency ?? 'daily';
       if (backupDue(frequency === 'manual' ? 'daily' : frequency, savedAt, this.healthTick()))
         return { label: 'Drive backup overdue', savedAt, kind: 'overdue' };
       const records = [...this.diary.states().values(), ...this.diary.trash().values()];
@@ -298,7 +298,7 @@ export class BackupService {
           c.archive.vault_id === this.vault.vault?.envelope.vault_id,
       ) &&
         !backupDue(
-          this.preferences.value().backup_frequency ?? 'manual',
+          this.preferences.value().backup_frequency ?? 'daily',
           this.lastDriveSnapshot(),
           Date.now(),
         ))

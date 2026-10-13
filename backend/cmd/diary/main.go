@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
@@ -36,7 +35,8 @@ func loadEnvironment(path string, required bool) error {
 }
 
 func run() error {
-	desktopMode := flag.Bool("desktop", false, "serve embedded UI, open browser and reuse an existing app instance")
+	desktopMode := flag.Bool("desktop", packagedBrowser == "true", "serve the packaged diary in your browser")
+	configure := flag.Bool("configure", false, "open the browser connection setup instead of the diary")
 	migrate := flag.Bool("migrate", false, "apply pending numbered database migrations and exit")
 	migrationPath := flag.String("migrations", "../migrations", "migration directory")
 	resetLogin := flag.Bool("reset-login", false, "reset login password interactively and invalidate all sessions; vault unchanged")
@@ -53,18 +53,19 @@ func run() error {
 		if e != nil {
 			return e
 		}
-		*envFile = filepath.Join(filepath.Dir(executable), ".env")
+		*envFile, e = desktop.EnvironmentPath(executable)
+		if e != nil {
+			return e
+		}
+	}
+	if *configure && (!*desktopMode || *migrate || *resetLogin) {
+		return errors.New("-configure is only available for the browser package")
+	}
+	if *desktopMode && !*migrate && !*resetLogin {
+		return runBrowser(*envFile, *configure)
 	}
 	if err := loadEnvironment(*envFile, explicitEnv); err != nil {
 		return err
-	}
-	if *desktopMode && !*resetLogin && !*migrate {
-		if !desktop.Ready() {
-			return errors.New("desktop assets missing; build with node scripts/package.mjs")
-		}
-		if desktop.Existing() {
-			return desktop.OpenBrowser("http://127.0.0.1:8080")
-		}
 	}
 
 	dsn := os.Getenv("DATABASE_URL")
@@ -132,9 +133,6 @@ func run() error {
 		err := pool.QueryRow(ctx, "SELECT version FROM schema_migrations WHERE version = 7").Scan(&version)
 		return err
 	}, &private.Store{Pool: pool}, cloud.New(os.Getenv("GOOGLE_CLIENT_ID"), os.Getenv("GOOGLE_CLIENT_SECRET")))
-	if *desktopMode {
-		desktop.Mount(e)
-	}
 	addr := "127.0.0.1:8080"
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -145,29 +143,9 @@ func run() error {
 	}
 	e.Listener = listener
 	defer listener.Close()
-	fmt.Println("WebDairy Phase 4 backend listening on", addr)
+	fmt.Println("WebDairy listening on", addr)
 	failure := make(chan error, 1)
 	go func() { failure <- e.Start(addr) }()
-	if *desktopMode {
-		go func() {
-			client := http.Client{Timeout: time.Second}
-			for attempt := 0; attempt < 30; attempt++ {
-				select {
-				case <-ctx.Done():
-					return
-				default:
-				}
-				if r, e := client.Get("http://127.0.0.1:8080/api/health"); e == nil {
-					r.Body.Close()
-					if r.StatusCode == 200 {
-						_ = desktop.OpenBrowser("http://127.0.0.1:8080")
-						return
-					}
-				}
-				time.Sleep(200 * time.Millisecond)
-			}
-		}()
-	}
 	select {
 	case err := <-failure:
 		if !errors.Is(err, http.ErrServerClosed) {
@@ -186,4 +164,73 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+// Set only by the packaging build. Source/development commands retain their
+// existing defaults; a downloaded executable opens the browser on double-click.
+var packagedBrowser = "false"
+
+func runBrowser(path string, configure bool) error {
+	if desktop.Existing() {
+		if configure {
+			return errors.New("WebDairy is already running. Close its launcher window before opening Setup WebDairy")
+		}
+		return desktop.OpenBrowser(desktop.BrowserURL)
+	}
+	if !desktop.Ready() {
+		return errors.New("browser files are missing; build the package with node scripts/package.mjs")
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:8080")
+	if err != nil {
+		if desktop.Existing() && !configure {
+			return desktop.OpenBrowser(desktop.BrowserURL)
+		}
+		return errors.New("port 8080 is in use by another program. Close your own old WebDairy process before starting this one")
+	}
+	defer listener.Close()
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	setup := desktop.NewSetup(ctx, path, func(startup context.Context, values map[string]string) (http.Handler, func(), error) {
+		pool, err := pgxpool.New(ctx, values["DATABASE_URL"])
+		if err != nil {
+			return nil, nil, err
+		}
+		// Ping first so the wizard can distinguish an unavailable service,
+		// invalid login and missing database without printing any credentials.
+		if err = pool.Ping(startup); err == nil {
+			err = database.MigrateFS(startup, pool, desktop.Migrations())
+		}
+		if err != nil {
+			pool.Close()
+			return nil, nil, err
+		}
+		e := server.New(func(check context.Context) error {
+			var version int
+			return pool.QueryRow(check, "SELECT version FROM schema_migrations WHERE version = 7").Scan(&version)
+		}, &private.Store{Pool: pool}, cloud.New(values["GOOGLE_CLIENT_ID"], values["GOOGLE_CLIENT_SECRET"]))
+		desktop.Mount(e)
+		return e, pool.Close, nil
+	})
+	defer setup.Close()
+	srv := &http.Server{Handler: setup, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384}
+	failure := make(chan error, 1)
+	go func() { failure <- srv.Serve(listener) }()
+	if !configure {
+		go func() { _ = setup.Start() }()
+	}
+	fmt.Println("WebDairy is open in your browser. Keep this window running; Ctrl+C stops WebDairy.")
+	if err := desktop.OpenBrowser(desktop.BrowserURL); err != nil {
+		fmt.Println("Open", desktop.BrowserURL, "in your browser.")
+	}
+	select {
+	case err := <-failure:
+		if !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+	case <-ctx.Done():
+		shutdown, stop := context.WithTimeout(context.Background(), 5*time.Second)
+		defer stop()
+		return srv.Shutdown(shutdown)
+	}
+	return nil
 }

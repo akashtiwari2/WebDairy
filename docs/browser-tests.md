@@ -58,3 +58,15 @@ a packaged Linux executable from an unrelated working directory, embedded SQL,
 second-instance reuse and a production-CSP browser encryption/recovery workflow.
 Windows/macOS cross-compilation is build evidence; live OAuth/OS acceptance remains
 manual after configuring the client described in google-setup.md.
+
+## Packaged launcher acceptance
+
+After `node scripts/package.mjs linux-amd64`, `bash scripts/test-launcher.sh`
+uses only disposable synthetic PostgreSQL databases and a temporary browser
+profile/config. It tests unavailable storage, rejection/preservation of another
+app's database (including an unrelated migration marker), first-run database
+creation, saved configuration, embedded migrations, CSP-compatible production
+CSS/Argon2, recovery verification, encrypted autosave/mood/tags, focused unlock,
+viewport fit, restart with retained data and second-instance reuse. Screenshots
+are written under ignored `.runtime/screenshots`. It does not test real Google
+accounts or execute Windows/Mac binaries on those operating systems.

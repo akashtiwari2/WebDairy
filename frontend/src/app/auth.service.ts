@@ -11,7 +11,11 @@ export class APIError extends Error {
           ? 'Login expired. Your encrypted draft is retained.'
           : status === 429
             ? 'Too many login attempts. Wait one minute.'
-            : 'Request failed. Check backend and PostgreSQL.',
+            : data?.error === 'database_unavailable'
+              ? 'Diary storage is unavailable. Keep PostgreSQL running and try again.'
+              : status === 502 || status === 503
+                ? 'WebDairy is not responding. Keep the local program running and try again.'
+                : 'This action could not be completed. Please try again.',
     );
   }
 }

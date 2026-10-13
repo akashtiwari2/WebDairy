@@ -1,36 +1,170 @@
-<section class="tool-panel" aria-label="Encrypted backups">
-  <h2>Encrypted backup and restore</h2>
-  <p>
-    Keep a downloaded .diary file outside this browser. It needs the passphrase or offline recovery
-    key from when it was created. Login passwords and sessions are excluded.
+<section class="tool-panel backup-page" aria-label="Encrypted backups">
+  @if (v.state() !== 'unlocked') {
+    <button class="text-button" (click)="back()" [disabled]="v.busy()">← Back</button>
+  }
+  <div class="section-heading">
+    <div>
+      <span class="step-label">{{
+        v.state() === 'setup' ? 'WELCOME BACK' : 'KEEP YOUR DIARY SAFE'
+      }}</span>
+      <h2>{{ v.state() === 'setup' ? 'Bring your diary back.' : 'Backups' }}</h2>
+    </div>
+  </div>
+  <p class="section-description">
+    {{
+      v.state() === 'setup'
+        ? 'Connect the same Google account you used before. We will look for your saved diary.'
+        : 'Keep a copy on Google Drive so you can restore your diary on another laptop.'
+    }}
   </p>
   <section class="drive-panel" aria-label="Google Drive backups">
-    <h3>Google Drive backup and restore</h3>
     @if (!b.google.status().configured) {
-      <p>
-        Set up Desktop OAuth first using docs/google-setup.md. Manual encrypted files still work.
+      <button class="primary" disabled>Continue with Google</button>
+      <p class="hint">
+        Google connection is not set up for this installation yet. You can restore a backup file
+        below.
       </p>
     } @else if (!b.google.status().linked && !b.google.status().setup_ready) {
-      <p>Sign in with Google, or link it in Settings after local login.</p>
-    } @else if (!b.google.status().drive_connected) {
-      <button (click)="b.google.connect('drive')" [disabled]="b.google.connecting()">
-        Connect Google Drive backups
+      <button
+        class="primary"
+        (click)="b.google.connect(b.auth.authenticated() ? 'link' : 'login')"
+        [disabled]="b.google.connecting()"
+      >
+        Continue with Google
       </button>
-      <p>Backup permission is separate from Google sign-in.</p>
+    } @else if (!b.google.status().drive_connected) {
+      <p class="account-badge">{{ b.google.status().email }}</p>
+      <button
+        class="primary"
+        id="connect-drive"
+        (click)="b.google.connect('drive')"
+        [disabled]="b.google.connecting()"
+      >
+        {{ v.state() === 'setup' ? 'Find my backup' : 'Enable Google Drive backup' }}
+      </button>
+      <p class="hint">Allow WebDairy to save and read its own encrypted backups.</p>
     } @else {
-      <p>Connected: {{ b.google.status().email }}</p>
+      <div class="backup-summary">
+        <span class="connection-dot" aria-hidden="true"></span>
+        <div>
+          <strong>Google Drive connected</strong>
+          <p>{{ b.google.status().email }}</p>
+        </div>
+      </div>
       @if (v.state() === 'unlocked') {
-        <label
-          >Backup frequency<select
-            [ngModel]="b.preferences.value().backup_frequency || 'manual'"
-            (ngModelChange)="setBackupPreference('backup_frequency', $event)"
+        <div class="backup-health-card" role="status">
+          <strong>{{ b.health().label }}</strong>
+          <p>
+            {{
+              b.lastDriveSnapshot()
+                ? 'Last backup: ' + timestamp(b.lastDriveSnapshot())
+                : 'Your first backup will start when the diary is ready.'
+            }}
+          </p>
+        </div>
+        <div class="tool-row backup-controls">
+          <label
+            >Automatic backup<select
+              id="backup-frequency"
+              [ngModel]="b.preferences.value().backup_frequency || 'daily'"
+              (ngModelChange)="setBackupPreference('backup_frequency', $event)"
+            >
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="monthly">Monthly</option>
+              <option value="manual">Only when I choose</option>
+            </select></label
           >
-            <option value="manual">Manual</option>
-            <option value="daily">Daily (24 hours)</option>
-            <option value="weekly">Weekly (7 days)</option>
-            <option value="monthly">Monthly (30 days)</option>
-          </select></label
-        >
+          <button
+            class="primary"
+            id="upload-drive"
+            (click)="uploadDrive()"
+            [disabled]="v.busy() || b.driveBusy()"
+          >
+            {{ b.driveBusy() ? 'Backing up…' : 'Back up now' }}
+          </button>
+        </div>
+        @if (b.preferences.value().backup_frequency === 'manual') {
+          <p class="hint">Automatic backup is off. Choose Daily, Weekly or Monthly to enable it.</p>
+        }
+        <p class="hint">
+          Backups run while your diary is open and unlocked. Missed backups retry the next time you
+          open it.
+        </p>
+      }
+      @if (!b.preview() && (v.state() !== 'unlocked' || driveRestore())) {
+        <div class="restore-card">
+          @if (b.google.loading()) {
+            <p role="status">Looking for your diary backup…</p>
+          } @else if (b.google.files().length) {
+            <h3>Your diary backup was found.</h3>
+            <label
+              >Backup to restore<select
+                id="drive-backup"
+                [ngModel]="driveId()"
+                (ngModelChange)="driveId.set($event)"
+              >
+                @for (file of sortedFiles(); track file.id) {
+                  <option [value]="file.id">
+                    {{ timestamp(file.appProperties?.snapshot_at || file.createdTime) }}
+                  </option>
+                }
+              </select></label
+            >
+            <form (ngSubmit)="verifyDrive()">
+              <label
+                >{{
+                  mode === 'passphrase'
+                    ? 'Diary password for this backup'
+                    : 'Recovery key for this backup'
+                }}<input
+                  id="drive-secret"
+                  name="drive-secret"
+                  type="password"
+                  [(ngModel)]="secret"
+                  autocomplete="off"
+                  required
+              /></label>
+              <button
+                class="primary"
+                id="verify-drive"
+                [disabled]="v.busy() || !driveId() || !secret"
+              >
+                Continue to restore
+              </button>
+              <button class="text-button" type="button" (click)="switchKey()">
+                {{
+                  mode === 'passphrase' ? 'Use recovery key instead' : 'Use diary password instead'
+                }}
+              </button>
+            </form>
+            <p class="hint">Your diary password keeps the backup private, even in Google Drive.</p>
+          } @else if (b.google.listed() && !b.google.error()) {
+            <h3>No diary backup found.</h3>
+            <p>Check that you connected the right Google account.</p>
+            @if (v.state() === 'setup') {
+              <button (click)="backToCreate()">Start a new diary</button>
+            }
+          }
+          <button
+            class="text-button"
+            (click)="refreshDrive()"
+            [disabled]="v.busy() || b.google.loading()"
+          >
+            Check again
+          </button>
+        </div>
+      }
+      @if (v.state() === 'unlocked' && !driveRestore() && !b.preview()) {
+        <button class="text-button" id="show-drive-restore" (click)="driveRestore.set(true)">
+          Restore from Google Drive
+        </button>
+      }
+      @if (v.state() === 'unlocked' && driveRestore() && !b.preview()) {
+        <button class="text-button" (click)="driveRestore.set(false)">Cancel restore</button>
+      }
+      <details class="advanced-section">
+        <summary>Backup settings</summary>
         <label
           >Keep latest backups<input
             type="number"
@@ -39,237 +173,183 @@
             [ngModel]="b.preferences.value().backup_keep || 30"
             (change)="setBackupPreference('backup_keep', +$any($event.target).value)"
         /></label>
-        <p>
-          Schedules run while this app is open and unlocked. Missed backups catch up after unlock;
-          failed uploads retry, including pending manual uploads.
-        </p>
-        @if (b.lastDriveSnapshot()) {
-          <p>Last Drive snapshot: {{ timestamp(b.lastDriveSnapshot()) }}</p>
-        }
-        <button id="upload-drive" (click)="uploadDrive()" [disabled]="v.busy() || b.driveBusy()">
-          Back up to Drive now
+        <p class="hint">Older copies are removed only after a new backup succeeds.</p>
+        <button (click)="b.google.connect('drive')" [disabled]="b.google.connecting() || v.busy()">
+          Reconnect Google Drive
         </button>
-      }
-      <button (click)="b.google.connect('drive')" [disabled]="b.google.connecting() || v.busy()">
-        Reconnect Drive
-      </button>
-      <button (click)="refreshDrive()" [disabled]="v.busy() || b.google.loading()">
-        Refresh available backups
-      </button>
-      <button (click)="disconnectDrive()" [disabled]="v.busy()">Disconnect Drive</button>
-      <p>{{ b.driveMessage() }}</p>
-      @if (b.driveError()) {
-        <p role="alert">{{ b.driveError() }}</p>
-      }
-      @if (!b.preview()) {
-        @if (b.google.files().length) {
-          <h4>Restore available</h4>
-          <label
-            >Choose backup<select
-              id="drive-backup"
-              [ngModel]="driveId()"
-              (ngModelChange)="driveId.set($event)"
-            >
-              <option value="">Choose a snapshot</option>
-              @for (file of b.google.files(); track file.id) {
-                <option [value]="file.id">
-                  {{ timestamp(file.appProperties?.snapshot_at || file.createdTime) }}
-                </option>
-              }
-            </select></label
-          >
-          <label
-            >Unlock backup with<select [(ngModel)]="mode">
-              <option value="passphrase">Vault passphrase</option>
-              <option value="recovery">Recovery key</option>
-            </select></label
-          >
-          <label
-            >Backup secret<input
-              id="drive-secret"
-              type="password"
-              [(ngModel)]="secret"
-              autocomplete="off"
-          /></label>
-          <button
-            id="verify-drive"
-            (click)="verifyDrive()"
-            [disabled]="v.busy() || !driveId() || !secret"
-          >
-            Verify and preview restore
-          </button>
-          <p>Google login alone cannot decrypt the backup. Restore requires your confirmation.</p>
-        } @else if (!b.google.loading() && !b.google.error()) {
-          <p>No WebDairy backups found in this Google account.</p>
-        }
-      }
+        <button (click)="disconnectDrive()" [disabled]="v.busy()">Disconnect this device</button>
+      </details>
     }
     @if (b.google.connecting()) {
-      <p>Approve permission in the Google window.</p>
+      <p role="status">Finish connecting in the Google window.</p>
       <button (click)="b.google.cancel()">Cancel</button>
     }
     @if (b.google.error()) {
-      <p role="alert">{{ b.google.error() }}</p>
+      <p class="inline-error" role="alert">{{ b.google.error() }}</p>
+    }
+    @if (b.driveMessage()) {
+      <p role="status">{{ b.driveMessage() }}</p>
+    }
+    @if (b.driveError()) {
+      <p class="inline-error" role="alert">{{ b.driveError() }}</p>
     }
   </section>
-  @if (v.state() === 'unlocked') {
-    <div class="backup-health-card" role="status">
-      <strong>{{ b.health().label }}</strong>
-      @if (b.health().savedAt) {
-        <p>Last full backup snapshot: {{ timestamp(b.health().savedAt) }}</p>
-      }
-      <p>
-        Downloaded backups are manual; Drive scheduling is configured above. A backup older than 24
-        hours is overdue; unsaved-text exports are separate. This tracks browser copies, not a
-        confirmed copy on another device. Download and keep a file separately. Google Drive
-        schedules can be configured above once connected.
-      </p>
-      <button (click)="refresh()" [disabled]="v.busy()">Refresh backup health</button>
-    </div>
-    <div class="tool-row">
-      <button id="export-backup" (click)="export()" [disabled]="v.busy()">
-        Save and export backup</button
-      ><button (click)="export(true)" [disabled]="v.busy()">Export unsaved editor text</button>
-    </div>
-    <p class="hint">
-      Editor-text export works without the backend. It includes your draft version of conflicts.
-    </p>
-  }
-  @if (b.message()) {
-    <p role="status">{{ b.message() }}</p>
-  }
   @if (b.preview(); as preview) {
-    <div class="comparison">
-      <h3>Verified restore preview</h3>
-      <dl>
-        <dt>Vault</dt>
-        <dd>{{ preview.vault_id }}</dd>
-        <dt>Snapshot</dt>
-        <dd>{{ preview.snapshot_at }}</dd>
-        <dt>Entries</dt>
-        <dd>{{ preview.active }} active, {{ preview.trashed }} in trash</dd>
-      </dl>
+    <div class="comparison restore-card" id="restore-preview">
+      <span class="step-label">READY TO RESTORE</span>
+      <h3>Your backup is verified.</h3>
+      <p>
+        {{ timestamp(preview.snapshot_at) }} · {{ preview.active }} entries ·
+        {{ preview.trashed }} in trash
+      </p>
       @if (preview.source === 'browser-draft') {
-        <p role="note">
-          This file includes unconfirmed editor text and the exporting user's version of conflicts.
-        </p>
+        <p role="note">This backup includes writing that had not finished saving.</p>
       }
       @if (b.auth.initialized()) {
         <p>
-          Restore replaces the current diary. Your current login password stays the same. Save a
-          current-diary backup first; a copy is also kept with the three latest replacement backups.
+          This will replace the diary on this computer. First save a safety copy of your current
+          diary.
         </p>
         <button (click)="safety()" [disabled]="v.busy() || v.state() !== 'unlocked'">
-          Download current diary backup
+          Save current diary first
         </button>
         @if (v.state() !== 'unlocked') {
-          <p>Unlock the current diary above, then verify the import file again.</p>
+          <p>Unlock your current diary, then choose and verify the backup again.</p>
         }
         <label
           ><input type="checkbox" [(ngModel)]="replaceConfirmed" [disabled]="!b.safetyReady()" /> I
-          saved the current backup file and want to replace this diary.</label
+          saved the safety copy and want to replace this diary.</label
         >
       } @else if (b.auth.googleSetupReady()) {
-        <p>
-          Restore into this empty device using your verified Google login; no new local login
-          password is needed.
-        </p>
         <label
-          ><input type="checkbox" [(ngModel)]="replaceConfirmed" /> Restore this verified snapshot
-          into the empty database.</label
+          ><input type="checkbox" [(ngModel)]="replaceConfirmed" /> Restore this diary on this
+          computer.</label
         >
       } @else {
         <p>
-          This database is empty. Choose a new local login password; diary encryption still uses the
-          backup's vault key.
+          Choose a login password for this computer. Keep using your backup's diary password to
+          unlock it.
         </p>
         <label
-          >New local login password<input
+          >New login password (12+ characters)<input
             id="restore-login"
             type="password"
             [(ngModel)]="login"
             autocomplete="new-password"
-            minlength="12" /></label
-        ><label
+            minlength="12"
+        /></label>
+        <label
           >Confirm login password<input
             id="restore-login-confirm"
             type="password"
             [(ngModel)]="confirmation"
-            autocomplete="new-password" /></label
-        ><label
-          ><input type="checkbox" [(ngModel)]="replaceConfirmed" /> Restore this verified snapshot
-          into the empty database.</label
+            autocomplete="new-password"
+        /></label>
+        <label
+          ><input type="checkbox" [(ngModel)]="replaceConfirmed" /> Restore this diary on this
+          computer.</label
         >
       }
       <button
+        class="primary"
         id="commit-restore"
         (click)="commit()"
         [disabled]="v.busy() || !replaceConfirmed || (b.auth.initialized() && !b.safetyReady())"
       >
-        Confirm restore</button
-      ><button (click)="b.clearPreview()" [disabled]="v.busy()">Cancel preview</button>
+        Restore my diary
+      </button>
+      <button (click)="b.clearPreview()" [disabled]="v.busy()">Cancel</button>
     </div>
-  } @else {
-    <form (ngSubmit)="verify()" autocomplete="off">
-      <label
-        >Encrypted backup file (maximum 48 MiB)<input
-          id="import-file"
-          type="file"
-          accept=".diary,application/json"
-          (change)="choose($event)"
-      /></label>
-      <p>{{ fileName() }}</p>
-      <label
-        >Unlock backup with<select name="mode" [(ngModel)]="mode">
-          <option value="passphrase">Vault passphrase</option>
-          <option value="recovery">Offline recovery key</option>
-        </select></label
-      ><label
-        >{{ mode === 'passphrase' ? 'Backup vault passphrase' : 'Backup recovery key'
-        }}<input
-          id="import-secret"
-          name="secret"
-          type="password"
-          [(ngModel)]="secret"
-          autocomplete="off"
-          required /></label
-      ><button [disabled]="v.busy() || !file">Verify and preview</button>
-    </form>
   }
-  <h3>Browser backup copies</h3>
-  <p class="hint">
-    These copies can be lost if browser storage is cleared or evicted. Download them to another
-    location.
-  </p>
-  <div class="tool-list">
-    @for (backup of b.local(); track backup.id) {
-      <article>
-        <span>{{ backup.saved_at }} · {{ backup.source }}</span
-        ><button (click)="b.downloadLocal(backup.id)" [disabled]="v.busy()">Download</button
-        ><button (click)="remove(backup.id)" [disabled]="v.busy()">Remove browser copy</button>
-      </article>
-    } @empty {
-      <p>No browser copies yet.</p>
+  <details
+    class="advanced-section"
+    id="file-backups"
+    [open]="!b.google.status().configured && v.state() === 'setup'"
+  >
+    <summary>Backup files on your computer</summary>
+    <p class="hint">
+      Use a downloaded .diary file when you prefer a file backup or cannot use Google Drive.
+    </p>
+    @if (v.state() === 'unlocked') {
+      <button class="primary" id="export-backup" (click)="export()" [disabled]="v.busy()">
+        Download diary backup
+      </button>
     }
-  </div>
-  @if (b.historyError()) {
-    <p role="status">{{ b.historyError() }}</p>
-  }
-  @if (b.history().length) {
-    <h3>Before-replacement backups</h3>
-    <div class="tool-list">
-      @for (backup of b.history(); track backup.id) {
-        <article>
-          <span>{{ backup.saved_at }}</span
-          ><button (click)="history(backup.id)" [disabled]="v.busy()">
-            Download previous diary
-          </button>
-        </article>
+    @if (!b.preview()) {
+      <form (ngSubmit)="verify()" autocomplete="off">
+        <label
+          >Choose your backup file<input
+            id="import-file"
+            type="file"
+            accept=".diary,application/json"
+            (change)="choose($event)"
+        /></label>
+        @if (fileName()) {
+          <p>{{ fileName() }}</p>
+        }
+        <label
+          >Open backup with<select name="mode" [(ngModel)]="mode">
+            <option value="passphrase">Diary password</option>
+            <option value="recovery">Recovery key</option>
+          </select></label
+        >
+        <label
+          >{{
+            mode === 'passphrase'
+              ? 'Diary password for this backup'
+              : 'Recovery key for this backup'
+          }}<input
+            id="import-secret"
+            name="secret"
+            type="password"
+            [(ngModel)]="secret"
+            autocomplete="off"
+            required
+        /></label>
+        <button [disabled]="v.busy() || !file || !secret">Check backup</button>
+      </form>
+    }
+    <details class="advanced-section">
+      <summary>Copies saved in this browser</summary>
+      <p class="hint">
+        These copies stay on this computer. Download one to keep it outside the browser.
+      </p>
+      <div class="tool-list">
+        @for (backup of b.local(); track backup.id) {
+          <article>
+            <span>{{ timestamp(backup.saved_at) }}</span
+            ><button (click)="b.downloadLocal(backup.id)" [disabled]="v.busy()">Download</button
+            ><button (click)="remove(backup.id)" [disabled]="v.busy()">Remove copy</button>
+          </article>
+        } @empty {
+          <p>No copies saved in this browser yet.</p>
+        }
+      </div>
+      @if (v.state() === 'unlocked') {
+        <button (click)="export(true)" [disabled]="v.busy()">Download unsaved writing</button>
+        <p class="hint">
+          Use this if local saving is unavailable. It includes your unconfirmed writing.
+        </p>
       }
-    </div>
+    </details>
+    @if (b.historyError()) {
+      <p role="status">{{ b.historyError() }}</p>
+    }
+    @if (b.history().length) {
+      <details class="advanced-section">
+        <summary>Diaries saved before a replacement</summary>
+        <div class="tool-list">
+          @for (backup of b.history(); track backup.id) {
+            <article>
+              <span>{{ timestamp(backup.saved_at) }}</span
+              ><button (click)="history(backup.id)" [disabled]="v.busy()">Download</button>
+            </article>
+          }
+        </div>
+      </details>
+    }
+  </details>
+  @if (b.message()) {
+    <p role="status">{{ b.message() }}</p>
   }
-  <p class="hint">
-    Google Drive and scheduled uploads will be added in Phase 4. Local export has no automatic
-    background schedule.
-  </p>
 </section>

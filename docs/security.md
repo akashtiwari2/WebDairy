@@ -173,3 +173,22 @@ permissive CORS and loopback binding. Existing Host/Origin/CSRF checks remain.
 Mock-provider checks cover identity/state/replay/scope/credential-store failure,
 upload retries, token isolation and retention. Live Google trials, OS keychain
 acceptance, signing/notarization and trusted distribution remain release checks.
+
+## Local setup boundary
+
+The packaged launcher holds its loopback port before attempting storage startup.
+Before initialization, only setup/status/health/instance endpoints are available.
+Setup mutations require exact loopback Host, same Origin and a random per-process
+setup token; responses contain no saved DSN/password/client secret. Settings save
+atomically only after the selected database connects and migrations finish.
+Creation never drops a database, resets entries or alters PostgreSQL services.
+System databases and unrelated non-empty databases are rejected by the wizard.
+
+The PostgreSQL DSN and optional OAuth client configuration remain local .env
+settings, not encrypted diary content. User-folder permissions protect them where
+supported; Windows uses inherited user-folder ACLs. Existing portable .env and
+process overrides are supported. Normal app authentication/CSRF remains required
+after setup. Desktop OAuth client configuration is separate from Google tokens,
+which still use the OS keyring. ZIP distribution uses an explicit public-file
+allowlist and excludes runtime .env, tokens and databases. Production CSS disables
+critical-style deferred inline scripts so it loads under the restrictive CSP.

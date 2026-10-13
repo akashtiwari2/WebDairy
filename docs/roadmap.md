@@ -103,3 +103,25 @@ are required for Phase 3.
 
 Validation is development evidence, not a security audit. Production least-privilege DB setup, signed installers, actual Windows/Mac hardware
 acceptance and live Google-account validation remain outstanding. See security.md for practical limits.
+
+## Browser daily-use refinement (implemented)
+
+Final target: browser UI with a local launcher and PostgreSQL. No SQLite migration,
+Tauri/native window or hosted database. One laptop at a time uses backup/restore.
+
+- [x] Remove development/backend/database labels from normal screens.
+- [x] Focused Welcome → new diary or restore; unlock stays separate from backup forms.
+- [x] Visible Google entry point with an honest unavailable/configuration explanation.
+- [x] Guided Drive discovery, newest-snapshot default, password/recovery verification
+      and explicit restore; retain existing-diary safety copy and replacement checks.
+- [x] Daily backup default for new preferences; preserve existing chosen frequencies.
+- [x] Collapse file copies, retention, reconnect and recovery/admin help into secondary options.
+- [x] Browser-launch executable with first-run PostgreSQL setup, missing database
+      creation when permitted, saved-connection retry and safe migration startup.
+- [x] User-folder connection settings survive package upgrades; no saved secrets in UI.
+- [x] Windows/Mac start/setup/reset shortcuts and beginner daily-use instructions.
+- [ ] Live Google credentials/consent validation and Windows/Mac installation acceptance.
+- [ ] Signed distribution and background backup while the diary is closed (not claimed).
+
+See [daily use](daily-use.md). PostgreSQL stays an installed/running prerequisite;
+service auto-start must be configured for the user's actual PostgreSQL installation.
