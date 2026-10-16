@@ -127,7 +127,7 @@ func TestOAuthAndDrive(t *testing.T) {
 	g.UserURL = provider.URL + "/userinfo"
 	g.DriveURL = provider.URL + "/files"
 	g.UploadURL = provider.URL + "/upload"
-	state, link, err := g.Start("login", "", "", "", "http://127.0.0.1:4200")
+	state, link, err := g.Start("login", "", "", "", "http://127.0.0.1:4300")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +148,7 @@ func TestOAuthAndDrive(t *testing.T) {
 	if done, _ := g.Result(state); done {
 		t.Fatal("callback was marked completed before verification")
 	}
-	driveState, driveLink, e := g.Start("drive", subject, "", "", "http://127.0.0.1:4200")
+	driveState, driveLink, e := g.Start("drive", subject, "", "", "http://127.0.0.1:4300")
 	if e != nil {
 		t.Fatal(e)
 	}

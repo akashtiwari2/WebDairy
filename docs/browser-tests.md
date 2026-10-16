@@ -5,7 +5,7 @@ browser service or extra automation dependency is required. It runs only against
 fresh disposable data and refuses an already initialized vault.
 
 Run `bash scripts/test-browser.sh` on the Linux cloud environment with Chromium,
-Docker, Node and the installed project dependencies available. Ports 8080, 4200 and
+Docker, Node and the installed project dependencies available. Ports 8080, 4300 and
 9222 must be free. The runner creates a unique test database/profile, starts its own
 app/browser processes, and removes only those resources on exit. It never uses a
 personal DATABASE_URL or the ordinary diary database.

@@ -55,7 +55,7 @@ npm ci
 npm start
 ```
 
-Open the local app on port 4200. First create the login password and a different
+Open the local app on port 4300. First create the login password and a different
 vault passphrase, then save/verify the offline recovery key. On later visits log
 in and unlock. `npm start` includes the proxy configuration; plain `ng serve`
 without that configuration cannot forward `/api` to Go.
@@ -127,3 +127,16 @@ client. Follow [Google/Drive and desktop setup](google-setup.md). Startup applie
 migration 7 while preserving existing owners, password hashes and encrypted data.
 Existing owners link Google after local login; Google-only owners can add an
 optional offline login password. Configure Drive consent/schedule separately.
+
+## Development frontend port
+
+WebDairy development now uses port **4300**, leaving 4200 available for other
+projects. Both `npm start` and plain `ng serve` use 4300; `npm start` also includes
+the API proxy. Backend remains 8080, PostgreSQL remains 5432, and a packaged
+browser launcher continues serving its UI on 8080. Google callback stays at
+`http://127.0.0.1:8080/api/google/callback`; no Google Console redirect change is needed.
+
+Before switching from the old 4200 origin, wait for Saved or export pending text
+from that tab. IndexedDB drafts, browser backup copies and local preferences are
+separate per port. Saved diary entries stay in PostgreSQL. Restart your own
+backend and frontend after updating, then open `http://127.0.0.1:4300`.

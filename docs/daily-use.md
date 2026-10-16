@@ -120,6 +120,6 @@ once to start at login/boot if desired.
 
 **Reset-login** changes only the app login password and revokes sessions; it does not
 unlock encrypted writing or change the diary password. Keep your recovery key safe.
-Use one consistent browser/profile and 127.0.0.1 hostname. Development port 4200
+Use one consistent browser/profile and 127.0.0.1 hostname. Development port 4300
 has separate browser draft storage from packaged port 8080: save/export pending
 writing before switching. Saved PostgreSQL entries remain in the same database.

@@ -32,7 +32,7 @@ func NewDevelopment(checkDatabase func(context.Context) error, repository entrie
 			c.Response().Header().Set("Cache-Control", "no-store")
 			c.Response().Header().Set("X-Content-Type-Options", "nosniff")
 			switch c.Request().Host {
-			case "127.0.0.1:8080", "127.0.0.1:4200", "localhost:8080", "localhost:4200":
+			case "127.0.0.1:8080", "127.0.0.1:4300", "localhost:8080", "localhost:4300":
 			default:
 				return c.JSON(http.StatusForbidden, map[string]string{"error": "local_origin_required"})
 			}

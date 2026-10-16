@@ -56,7 +56,7 @@ For local Windows/Mac use, run `go run ./cmd/diary` from `backend`; no separate
 `-migrate` command is required. Already-applied migrations are skipped.
 
 Cloud startup checks ports, starts the labelled synthetic database, applies numbered
-migrations 1–7, then starts Go on loopback 8080 and Angular on loopback 4200 with
+migrations 1–7, then starts Go on loopback 8080 and Angular on loopback 4300 with
 the same-origin `/api` proxy. Ctrl+C stops its app children; PostgreSQL stays up.
 
 On the first visit, create two different passwords, copy the recovery key offline,

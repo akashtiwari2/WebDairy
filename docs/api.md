@@ -1,7 +1,7 @@
 # Phase 3 local API
 
 Go listens on `127.0.0.1:8080`. Angular's same-origin `/api` proxy forwards from
-4200 while preserving Host. Allowed hosts are localhost/127.0.0.1 on those two
+4300 while preserving Host. Allowed hosts are localhost/127.0.0.1 on those two
 ports. Writes require matching Origin, JSON content type and `X-CSRF-Token`.
 Cross-site requests are rejected. No CORS allowance or request-body logging.
 

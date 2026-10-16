@@ -29,7 +29,7 @@ OAuth tokens or vault/recovery keys in chat or commit them to Git.
    ```
 
 6. For a source checkout, restart the backend: `go run ./cmd/diary`. Migration 7 is automatic. Keep the
-   frontend running with `npm start`, using `http://127.0.0.1:4200` consistently.
+   frontend running with `npm start`, using `http://127.0.0.1:4300` consistently.
    The backend OAuth callback is `http://127.0.0.1:8080/api/google/callback`.
 7. Allow the Google sign-in popup. A successful callback says to close that window;
    WebDairy polls for completion and updates automatically.
@@ -111,7 +111,7 @@ set your own database and optional OAuth client, then run Start-WebDairy.
 
 The app opens `http://127.0.0.1:8080`; a second launcher opens the existing browser
 instance. Port conflicts report an error instead of stopping unrelated services.
-Keep its process running. Save/export old drafts before switching from port 4200:
+Keep its process running. Save/export old drafts before switching from port 4300:
 browser cookies/IndexedDB are tied to the browser origin. Committed database
 content is retained when using the same DATABASE_URL.
 

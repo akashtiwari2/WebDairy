@@ -3,7 +3,7 @@ set -euo pipefail
 source "$(dirname "$0")/env.sh"
 node --input-type=module <<'JS'
 import net from 'node:net';
-for (const port of [8080, 4200]) {
+for (const port of [8080, 4300]) {
   await new Promise((resolve, reject) => {
     const server = net.createServer();
     server.once('error', () => reject(new Error(`Local port ${port} is occupied. Check the existing service before stopping anything.`)));
@@ -35,6 +35,6 @@ done
 if [[ "$ready" != true ]]; then echo 'Backend readiness failed.' >&2; exit 1; fi
 cd "$WEBDIARY_ROOT/frontend"
 # Invoke the local CLI directly so the tracked PID owns the server.
-node node_modules/@angular/cli/bin/ng.js serve --host 127.0.0.1 --port 4200 --proxy-config proxy.conf.json &
+node node_modules/@angular/cli/bin/ng.js serve --host 127.0.0.1 --port 4300 --proxy-config proxy.conf.json &
 frontend_pid=$!
 wait "$frontend_pid"

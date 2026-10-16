@@ -71,10 +71,11 @@
           "defaultConfiguration": "development",
           "options": {
             "headers": {
-              "Content-Security-Policy": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws://127.0.0.1:4200 ws://localhost:4200; img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'",
+              "Content-Security-Policy": "default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws://127.0.0.1:4300 ws://localhost:4300; img-src 'self' data:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'",
               "Referrer-Policy": "no-referrer",
               "X-Content-Type-Options": "nosniff"
-            }
+            },
+            "port": 4300
           }
         },
         "test": {

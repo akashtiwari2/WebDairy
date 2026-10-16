@@ -73,7 +73,7 @@ try {
     behavior: "allow",
     downloadPath: process.env.WEBDIARY_BROWSER_DOWNLOADS,
   });
-  await send("Page.navigate", { url: "http://127.0.0.1:4200" });
+  await send("Page.navigate", { url: "http://127.0.0.1:4300" });
   await waitFor(`!!window.ng && !!document.querySelector('#start-new-diary')`);
   assert.equal(
     await evaluate(`!!document.querySelector('app-backup-panel')`),
@@ -270,7 +270,7 @@ try {
   assert.equal(JSON.stringify(list).includes("SYNTHETIC"), false);
   assert.equal(JSON.stringify(list).includes("2099-10-20"), false);
   const cookies = await send("Network.getCookies", {
-    urls: ["http://127.0.0.1:4200/api/vault"],
+    urls: ["http://127.0.0.1:4300/api/vault"],
   });
   assert.ok(
     cookies.cookies
@@ -292,7 +292,7 @@ try {
   );
   // A second tab cannot open the same vault while the first holds its Web Lock.
   const second = await send("Target.createTarget", {
-    url: "http://127.0.0.1:4200",
+    url: "http://127.0.0.1:4300",
   });
   const target = (
     await (await fetch("http://127.0.0.1:9222/json")).json()

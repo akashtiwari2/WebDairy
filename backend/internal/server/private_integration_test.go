@@ -44,10 +44,10 @@ func TestPrivateWorkflow(t *testing.T) {
 		if value != nil {
 			data, _ = json.Marshal(value)
 		}
-		req := httptest.NewRequest(method, "http://127.0.0.1:4200"+path, bytes.NewReader(data))
+		req := httptest.NewRequest(method, "http://127.0.0.1:4300"+path, bytes.NewReader(data))
 		req.Header.Set("Content-Type", "application/json")
 		if secure {
-			req.Header.Set("Origin", "http://127.0.0.1:4200")
+			req.Header.Set("Origin", "http://127.0.0.1:4300")
 			req.Header.Set("X-CSRF-Token", csrf)
 			for _, c := range cookies {
 				req.AddCookie(c)
@@ -87,7 +87,7 @@ func TestPrivateWorkflow(t *testing.T) {
 	if got := request("POST", "/api/auth/login", map[string]string{"password": "synthetic login password"}, false).Code; got != 403 {
 		t.Fatalf("no CSRF %d", got)
 	}
-	for _, host := range []string{"evil.example:4200", "localhost:9000"} {
+	for _, host := range []string{"evil.example:4300", "localhost:9000", "127.0.0.1:4200", "localhost:4200"} {
 		req := httptest.NewRequest("GET", "http://"+host+"/api/health", nil)
 		rec := httptest.NewRecorder()
 		e.ServeHTTP(rec, req)
@@ -95,7 +95,7 @@ func TestPrivateWorkflow(t *testing.T) {
 			t.Fatal("host bypass")
 		}
 	}
-	req := httptest.NewRequest("GET", "http://127.0.0.1:4200/api/auth/session", nil)
+	req := httptest.NewRequest("GET", "http://127.0.0.1:4300/api/auth/session", nil)
 	req.Header.Set("Origin", "https://evil.example")
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, req)

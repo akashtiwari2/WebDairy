@@ -164,8 +164,8 @@ func TestLocalOriginRequired(t *testing.T) {
 	}
 	// The development frontend's same-origin proxy is allowed, without CORS.
 	s := &stub{}
-	req := httptest.NewRequest("PUT", "http://127.0.0.1:4200/api/entries/2030-10-20", strings.NewReader(validWrite))
-	req.Header.Set("Origin", "http://127.0.0.1:4200")
+	req := httptest.NewRequest("PUT", "http://127.0.0.1:4300/api/entries/2030-10-20", strings.NewReader(validWrite))
+	req.Header.Set("Origin", "http://127.0.0.1:4300")
 	req.Header.Set("Content-Type", "application/json")
 	res := httptest.NewRecorder()
 	healthy(s).ServeHTTP(res, req)

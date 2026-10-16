@@ -64,7 +64,7 @@ func New(checkDatabase func(context.Context) error, s *private.Store, google ...
 			c.Response().Header().Set("Cache-Control", "no-store")
 			c.Response().Header().Set("X-Content-Type-Options", "nosniff")
 			switch c.Request().Host {
-			case "127.0.0.1:8080", "localhost:8080", "127.0.0.1:4200", "localhost:4200":
+			case "127.0.0.1:8080", "localhost:8080", "127.0.0.1:4300", "localhost:4300":
 			default:
 				return c.NoContent(403)
 			}
