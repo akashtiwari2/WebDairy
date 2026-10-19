@@ -5,7 +5,7 @@ source "$(dirname "$0")/env.sh"
 command -v chromium >/dev/null
 node --input-type=module <<'JS'
 import net from 'node:net';
-for (const port of [8080,9222]) await new Promise((resolve,reject)=>{
+for (const port of [47831,9222]) await new Promise((resolve,reject)=>{
  const s=net.createServer();s.once('error',()=>reject(Error(`Port ${port} occupied; stop your own app first.`)));s.listen(port,'127.0.0.1',()=>s.close(resolve));
 });
 JS
@@ -41,7 +41,7 @@ chromium --headless --no-sandbox --disable-dev-shm-usage --no-first-run --no-def
 ready=false
 for attempt in {1..30};do
  if ! kill -0 "$server_pid" "$browser_pid" 2>/dev/null;then cat "$launch_temp/server.log";exit 1;fi
- if curl -fsS http://127.0.0.1:8080/setup/status >/dev/null 2>&1 && curl -fsS http://127.0.0.1:9222/json >/dev/null 2>&1;then ready=true;break;fi
+ if curl -fsS http://127.0.0.1:47831/setup/status >/dev/null 2>&1 && curl -fsS http://127.0.0.1:9222/json >/dev/null 2>&1;then ready=true;break;fi
  sleep 1
 done
 [[ "$ready" == true ]] || { echo 'Launcher startup timed out.' >&2;exit 1; }
@@ -53,7 +53,7 @@ env -u DATABASE_URL -u GOOGLE_CLIENT_ID -u GOOGLE_CLIENT_SECRET "$WEBDIARY_LAUNC
 ready=false
 for attempt in {1..30};do
  if ! kill -0 "$server_pid" 2>/dev/null;then cat "$launch_temp/restart.log";exit 1;fi
- if curl -fsS http://127.0.0.1:8080/api/health >/dev/null 2>&1;then ready=true;break;fi
+ if curl -fsS http://127.0.0.1:47831/api/health >/dev/null 2>&1;then ready=true;break;fi
  sleep 1
 done
 [[ "$ready" == true ]] || { echo 'Saved-config restart timed out.' >&2;exit 1; }

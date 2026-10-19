@@ -4,7 +4,7 @@ source "$(dirname "$0")/env.sh"
 command -v chromium >/dev/null || { echo 'Chromium is required for browser checks.' >&2; exit 1; }
 node --input-type=module <<'JS'
 import net from 'node:net';
-for(const port of [8080,4300,9222]) await new Promise((resolve,reject)=>{
+for(const port of [47831,4300,9222]) await new Promise((resolve,reject)=>{
  const server=net.createServer();server.once('error',()=>reject(new Error(`Port ${port} occupied; stop your own app before browser checks.`)));
  server.listen(port,'127.0.0.1',()=>server.close(resolve));
 });

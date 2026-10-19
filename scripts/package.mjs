@@ -118,7 +118,7 @@ Before switching laptops, wait for Backed up; on the new laptop restore the
 latest backup with its diary password or recovery key. This is backup/restore,
 not simultaneous-device sync.
 
-The packaged browser uses http://127.0.0.1:8080. Use the same browser profile and
+The packaged browser uses http://127.0.0.1:47831. Use the same browser profile and
 hostname. Development port 4300 has separate browser draft storage: save or
 export unsaved drafts before changing ports. This is an unsigned development
 build; real Google-account and Windows/Mac acceptance/signing remain pending.

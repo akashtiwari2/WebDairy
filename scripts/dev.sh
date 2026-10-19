@@ -3,7 +3,7 @@ set -euo pipefail
 source "$(dirname "$0")/env.sh"
 node --input-type=module <<'JS'
 import net from 'node:net';
-for (const port of [8080, 4300]) {
+for (const port of [47831, 4300]) {
   await new Promise((resolve, reject) => {
     const server = net.createServer();
     server.once('error', () => reject(new Error(`Local port ${port} is occupied. Check the existing service before stopping anything.`)));
@@ -29,7 +29,7 @@ trap 'exit 143' TERM
 ready=false
 for attempt in {1..20}; do
  if ! kill -0 "$backend_pid" 2>/dev/null; then cat "$WEBDIARY_ROOT/.runtime/backend.log"; exit 1; fi
- if curl -fsS http://127.0.0.1:8080/api/health >/dev/null; then ready=true; break; fi
+ if curl -fsS http://127.0.0.1:47831/api/health >/dev/null; then ready=true; break; fi
  sleep 1
 done
 if [[ "$ready" != true ]]; then echo 'Backend readiness failed.' >&2; exit 1; fi

@@ -30,7 +30,7 @@ import (
 //go:embed setup.html
 var setupHTML string
 
-const BrowserURL = "http://127.0.0.1:8080"
+const BrowserURL = "http://127.0.0.1:47831"
 
 type Initializer func(context.Context, map[string]string) (http.Handler, func(), error)
 
@@ -287,7 +287,7 @@ func ensureDatabase(ctx context.Context, dsn string, create bool) error {
 func (s *Setup) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	if r.Host != "127.0.0.1:8080" {
+	if r.Host != "127.0.0.1:47831" {
 		http.Error(w, "Open WebDairy at "+BrowserURL, 403)
 		return
 	}

@@ -1,6 +1,6 @@
 # Phase 3 local API
 
-Go listens on `127.0.0.1:8080`. Angular's same-origin `/api` proxy forwards from
+Go listens on `127.0.0.1:47831`. Angular's same-origin `/api` proxy forwards from
 4300 while preserving Host. Allowed hosts are localhost/127.0.0.1 on those two
 ports. Writes require matching Origin, JSON content type and `X-CSRF-Token`.
 Cross-site requests are rejected. No CORS allowance or request-body logging.
@@ -126,7 +126,7 @@ Existing-diary replacement keeps its login identity and still requires a safety 
 
 ## Packaged local browser setup
 
-The executable binds only 127.0.0.1:8080 and initially serves an isolated setup
+The executable binds only 127.0.0.1:47831 and initially serves an isolated setup
 handler until PostgreSQL connects and migrations succeed. No diary/auth API is
 mounted on this handler. `GET /setup/status` exposes only readiness, busy state,
 a sanitized message and whether a connection is configured. Passwords/DSNs are

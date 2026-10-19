@@ -69,7 +69,7 @@ type Google struct {
 }
 
 const DriveScope = "https://www.googleapis.com/auth/drive.appdata"
-const Redirect = "http://127.0.0.1:8080/api/google/callback"
+const Redirect = "http://127.0.0.1:47831/api/google/callback"
 
 func New(id, secret string) *Google {
 	return &Google{ClientID: id, ClientSecret: secret, HTTP: &http.Client{Timeout: 60 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return errors.New("redirect refused") }}, Secrets: OSStore{},

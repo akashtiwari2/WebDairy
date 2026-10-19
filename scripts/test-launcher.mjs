@@ -55,12 +55,12 @@ try {
     deviceScaleFactor: 1,
     mobile: false,
   });
-  await send("Page.navigate", { url: "http://127.0.0.1:8080/" });
+  await send("Page.navigate", { url: "http://127.0.0.1:47831/" });
   await wait(
     `!!document.querySelector('#connection') && !document.querySelector('#connection').hidden`,
   );
   const status = await (
-    await fetch("http://127.0.0.1:8080/setup/status")
+    await fetch("http://127.0.0.1:47831/setup/status")
   ).json();
   assert.equal(status.ready, false);
   assert.ok(

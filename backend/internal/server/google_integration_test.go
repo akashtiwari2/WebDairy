@@ -155,7 +155,7 @@ func TestGoogleWorkflow(t *testing.T) {
 		if strings.Contains(u.Query().Get("scope"), cloud.DriveScope) || u.Query().Get("code_challenge") == "" {
 			t.Fatal("unsafe login scope/PKCE")
 		}
-		req := httptest.NewRequest("GET", "http://127.0.0.1:8080/api/google/callback?state="+u.Query().Get("state")+"&code=synthetic-code", nil)
+		req := httptest.NewRequest("GET", "http://127.0.0.1:47831/api/google/callback?state="+u.Query().Get("state")+"&code=synthetic-code", nil)
 		req.Header.Set("Sec-Fetch-Site", "cross-site")
 		rec := httptest.NewRecorder()
 		e.ServeHTTP(rec, req)
@@ -221,7 +221,7 @@ func TestGoogleWorkflow(t *testing.T) {
 		t.Fatal("separate Drive scope missing")
 	}
 	providerScope = "openid email " + cloud.DriveScope
-	callback := httptest.NewRequest("GET", "http://127.0.0.1:8080/api/google/callback?state="+authURL.Query().Get("state")+"&code=synthetic-drive-code", nil)
+	callback := httptest.NewRequest("GET", "http://127.0.0.1:47831/api/google/callback?state="+authURL.Query().Get("state")+"&code=synthetic-drive-code", nil)
 	callback.Header.Set("Sec-Fetch-Site", "cross-site")
 	rec := httptest.NewRecorder()
 	e.ServeHTTP(rec, callback)
@@ -264,7 +264,7 @@ func TestGoogleWorkflow(t *testing.T) {
 	}
 	// Only callback GET can arrive as a cross-site navigation, and still needs state.
 	for _, path := range []string{"/api/google/callback?state=invalid", "/api/auth/session"} {
-		req := httptest.NewRequest("GET", "http://127.0.0.1:8080"+path, nil)
+		req := httptest.NewRequest("GET", "http://127.0.0.1:47831"+path, nil)
 		req.Header.Set("Sec-Fetch-Site", "cross-site")
 		rec := httptest.NewRecorder()
 		e.ServeHTTP(rec, req)

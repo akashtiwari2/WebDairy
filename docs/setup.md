@@ -132,9 +132,9 @@ optional offline login password. Configure Drive consent/schedule separately.
 
 WebDairy development now uses port **4300**, leaving 4200 available for other
 projects. Both `npm start` and plain `ng serve` use 4300; `npm start` also includes
-the API proxy. Backend remains 8080, PostgreSQL remains 5432, and a packaged
-browser launcher continues serving its UI on 8080. Google callback stays at
-`http://127.0.0.1:8080/api/google/callback`; no Google Console redirect change is needed.
+the API proxy. Backend uses 47831, PostgreSQL remains 5432, and a packaged
+browser launcher serves its UI on 47831. The Google callback is
+`http://127.0.0.1:47831/api/google/callback`; no Google Console redirect change is needed.
 
 Before switching from the old 4200 origin, wait for Saved or export pending text
 from that tab. IndexedDB drafts, browser backup copies and local preferences are

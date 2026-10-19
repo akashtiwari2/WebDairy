@@ -133,13 +133,13 @@ func run() error {
 		err := pool.QueryRow(ctx, "SELECT version FROM schema_migrations WHERE version = 7").Scan(&version)
 		return err
 	}, &private.Store{Pool: pool}, cloud.New(os.Getenv("GOOGLE_CLIENT_ID"), os.Getenv("GOOGLE_CLIENT_SECRET")))
-	addr := "127.0.0.1:8080"
+	addr := "127.0.0.1:47831"
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		if *desktopMode && desktop.Existing() {
-			return desktop.OpenBrowser("http://127.0.0.1:8080")
+			return desktop.OpenBrowser("http://127.0.0.1:47831")
 		}
-		return errors.New("port 8080 is occupied; keep the existing app running or stop your own old backend before starting this one")
+		return errors.New("port 47831 is occupied; keep the existing app running or stop your own old backend before starting this one")
 	}
 	e.Listener = listener
 	defer listener.Close()
@@ -180,12 +180,12 @@ func runBrowser(path string, configure bool) error {
 	if !desktop.Ready() {
 		return errors.New("browser files are missing; build the package with node scripts/package.mjs")
 	}
-	listener, err := net.Listen("tcp", "127.0.0.1:8080")
+	listener, err := net.Listen("tcp", "127.0.0.1:47831")
 	if err != nil {
 		if desktop.Existing() && !configure {
 			return desktop.OpenBrowser(desktop.BrowserURL)
 		}
-		return errors.New("port 8080 is in use by another program. Close your own old WebDairy process before starting this one")
+		return errors.New("port 47831 is in use by another program. Close your own old WebDairy process before starting this one")
 	}
 	defer listener.Close()
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

@@ -636,7 +636,7 @@ try {
     // succeeds on a reconnected pool before loading the fresh setup page.
     let reconnected = false;
     for (let attempt = 0; attempt < 50; attempt++) {
-      if ((await fetch("http://127.0.0.1:8080/api/auth/session")).ok) {
+      if ((await fetch("http://127.0.0.1:47831/api/auth/session")).ok) {
         reconnected = true;
         break;
       }

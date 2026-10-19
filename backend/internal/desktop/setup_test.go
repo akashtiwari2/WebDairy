@@ -48,9 +48,9 @@ func TestSetupRejectsCrossSiteAndProtectsSecrets(t *testing.T) {
 	})
 	for _, tc := range []struct{ host, origin, token, site string }{
 		{"attacker.example", BrowserURL, s.token, "same-origin"},
-		{"127.0.0.1:8080", "https://attacker.example", s.token, "cross-site"},
-		{"127.0.0.1:8080", "", s.token, ""},
-		{"127.0.0.1:8080", BrowserURL, "wrong", "same-origin"},
+		{"127.0.0.1:47831", "https://attacker.example", s.token, "cross-site"},
+		{"127.0.0.1:47831", "", s.token, ""},
+		{"127.0.0.1:47831", BrowserURL, "wrong", "same-origin"},
 	} {
 		r := httptest.NewRequest("POST", BrowserURL+"/setup/retry", strings.NewReader("{}"))
 		r.Host = tc.host

@@ -30,10 +30,10 @@ func (s *stub) Save(_ context.Context, date string, write entries.Write) (entrie
 func (s *stub) Delete(context.Context, string, int64) error { s.deletes++; return s.err }
 
 func request(e *echo.Echo, method, path, body string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(method, "http://127.0.0.1:8080"+path, strings.NewReader(body))
+	req := httptest.NewRequest(method, "http://127.0.0.1:47831"+path, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	if method != http.MethodGet {
-		req.Header.Set("Origin", "http://127.0.0.1:8080")
+		req.Header.Set("Origin", "http://127.0.0.1:47831")
 	}
 	result := httptest.NewRecorder()
 	e.ServeHTTP(result, req)
@@ -146,10 +146,10 @@ func TestFailureAndConflictResponses(t *testing.T) {
 }
 func TestLocalOriginRequired(t *testing.T) {
 	for _, tc := range []struct{ host, origin, contentType string }{
-		{"127.0.0.1:8080", "https://evil.example", "application/json"},
+		{"127.0.0.1:47831", "https://evil.example", "application/json"},
 		{"evil.example", "http://evil.example", "application/json"},
-		{"127.0.0.1:8080", "", "application/json"},
-		{"127.0.0.1:8080", "http://127.0.0.1:8080", "text/plain"},
+		{"127.0.0.1:47831", "", "application/json"},
+		{"127.0.0.1:47831", "http://127.0.0.1:47831", "text/plain"},
 	} {
 		s := &stub{}
 		e := healthy(s)

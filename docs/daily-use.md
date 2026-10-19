@@ -13,7 +13,7 @@ Go, Node, npm or pgAdmin. PostgreSQL and a current browser are required.
    `WebDairy.exe`. Mac uses `Start-WebDairy.command` (Apple Silicon: darwin-arm64;
    Intel: darwin-amd64). Keep the executable and shortcuts together.
 3. Open Start-WebDairy. Your default browser opens automatically at
-   `http://127.0.0.1:8080`. Keep the launcher/terminal window running.
+   `http://127.0.0.1:47831`. Keep the launcher/terminal window running.
 4. On first use, enter your PostgreSQL username, password, diary database name
    and (if different) port in the browser setup form. The password is your
    PostgreSQL password, not your diary or Google password. WebDairy URL-encodes
@@ -112,6 +112,11 @@ To upgrade, stop WebDairy, extract the new package and start it. User-folder set
 and PostgreSQL diary data stay in place. If using the legacy portable `.env`, keep
 that private file alongside the new executable yourself.
 
+When upgrading from the old port 8080 to 47831, first wait for **Saved** or export
+pending writing in the old app. Browser drafts and login cookies belong to a
+specific port and are not moved automatically. Saved PostgreSQL entries stay in
+the database; open the new address and log in/unlock again.
+
 If storage could not start, start PostgreSQL and click **Try saved connection again**.
 A wrong PostgreSQL password has its own message. The app does not auto-start/kill an
 unknown PostgreSQL service; Windows Services, Postgres.app, Homebrew and other
@@ -121,5 +126,5 @@ once to start at login/boot if desired.
 **Reset-login** changes only the app login password and revokes sessions; it does not
 unlock encrypted writing or change the diary password. Keep your recovery key safe.
 Use one consistent browser/profile and 127.0.0.1 hostname. Development port 4300
-has separate browser draft storage from packaged port 8080: save/export pending
+has separate browser draft storage from packaged port 47831: save/export pending
 writing before switching. Saved PostgreSQL entries remain in the same database.

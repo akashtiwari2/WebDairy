@@ -54,7 +54,7 @@ func Mount(e *echo.Echo) {
 }
 func Existing() bool {
 	client := http.Client{Timeout: 2 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-	response, err := client.Get("http://127.0.0.1:8080/api/desktop")
+	response, err := client.Get("http://127.0.0.1:47831/api/desktop")
 	if err != nil {
 		return false
 	}
