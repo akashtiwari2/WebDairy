@@ -21,6 +21,10 @@ isme change nahi kiya gaya hai. Discussed HMAC hardening abhi implemented nahi h
 **Goal:** file padhne ke baad tum bata sako ki har meaningful line kyun hai,
 input kahan se aaya, output kahan gaya, failure par kya hoga aur test kaise prove karta hai.
 
+Saved progress, understood/pending topics, expected milestones, question bank aur
+session history ke liye [learning notebook](learning/README.md) use karo. Laptop
+copy/sync aur next session resume karne ke steps bhi wahin hain.
+
 ## 2. Daily 120-minute routine
 
 | Time | Kaam |

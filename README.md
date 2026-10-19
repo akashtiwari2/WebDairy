@@ -6,6 +6,8 @@ this repository's roadmap records what is actually implemented.
 
 For a beginner-friendly, time-bound walkthrough of the source, tests and build
 scripts, follow the [18-week study plan and file checklist](docs/study-plan.md).
+Keep your [learning progress, milestones, questions and session history](docs/learning/README.md)
+alongside the plan; the notebook includes laptop-copy and resume instructions.
 
 ## Current milestone: Phase 4 development implementation
 
